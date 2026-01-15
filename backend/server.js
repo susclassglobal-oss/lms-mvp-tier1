@@ -1,0 +1,1129 @@
+require('dotenv').config();
+const express = require('express');
+const { Pool } = require('pg');
+const cors = require('cors');
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+
+const app = express();
+app.use(express.json());
+app.use(cors());
+
+// --- CONFIGURATION ---
+const SALT_ROUNDS = 10;
+const JWT_SECRET = process.env.JWT_SECRET || 'your_new_secure_secret_key';
+
+// --- DATABASE CONNECTION (NEON) ---
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+// --- CLOUDINARY CONFIGURATION ---
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => {
+    // Determine if it's a video or image
+    const isVideo = file.mimetype.startsWith('video/');
+    
+    return {
+      folder: isVideo ? 'classroom_v2/videos' : 'classroom_v2/images',
+      resource_type: isVideo ? 'video' : 'image',
+      allowed_formats: isVideo 
+        ? ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv']
+        : ['jpg', 'png', 'jpeg', 'gif', 'webp']
+    };
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024 // 100MB limit
+  }
+});
+
+// --- MIDDLEWARE ---
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) return res.status(401).json({ error: "Access Denied: No Token" });
+
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(403).json({ error: "Invalid or Expired Token" });
+    req.user = decoded; 
+    next();
+  });
+};
+
+const adminOnly = (req, res, next) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: "Forbidden: Admin Only" });
+  next();
+};
+
+// --- ROUTES: AUTHENTICATION ---
+
+// 1. Admin Login (Env based)
+app.post('/api/admin/login', (req, res) => {
+  const { email, password } = req.body;
+  if (email === process.env.ADMIN_EMAIL && password === process.env.ADMIN_PASSWORD) {
+    const token = jwt.sign({ email, role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ success: true, token });
+  } else {
+    res.status(401).json({ success: false, message: "Invalid Admin Credentials" });
+  }
+});
+
+// 2. Universal Login (Student/Teacher)
+app.post('/api/login', async (req, res) => {
+  const { email, password, role } = req.body;
+  const activeRole = role.toLowerCase();
+  const table = activeRole === 'student' ? 'students' : 'teachers';
+
+  try {
+    // Case-insensitive lookup using LOWER()
+    const result = await pool.query(`SELECT * FROM ${table} WHERE LOWER(email) = LOWER($1)`, [email]);
+    
+    if (result.rows.length > 0) {
+      const user = result.rows[0];
+      const isMatch = await bcrypt.compare(password, user.password);
+      
+      if (isMatch) {
+        // Uniform token payload for both roles
+        const token = jwt.sign(
+          { id: user.id, email: user.email, role: activeRole }, 
+          JWT_SECRET, 
+          { expiresIn: '24h' }
+        );
+
+        delete user.password; // Security: Remove hash from response
+        res.json({ success: true, token, user: { ...user, role: activeRole } });
+      } else {
+        res.status(401).json({ success: false, message: "Incorrect Password" });
+      }
+    } else {
+      res.status(404).json({ success: false, message: `Account not found in ${activeRole} records` });
+    }
+  } catch (err) {
+    console.error("Login Error:", err);
+    res.status(500).json({ error: "Database error during login" });
+  }
+});
+
+// --- ROUTES: ADMIN MANAGEMENT ---
+
+// 3. Register Teacher
+app.post('/api/admin/register-teacher', authenticateToken, adminOnly, async (req, res) => {
+  const { name, email, password, staff_id, dept, media } = req.body;
+  try {
+    const hashed = await bcrypt.hash(password, SALT_ROUNDS);
+    // Note: We pass objects directly; pg driver handles JSON conversion for JSONB columns
+    const query = `INSERT INTO teachers (name, email, password, staff_id, dept, media, allocated_sections) 
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+    const values = [name, email, hashed, staff_id, dept, media || {}, []];
+    
+    await pool.query(query, values);
+    res.status(201).json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "DB Error: " + err.message });
+  }
+});
+
+// 4. Register Student
+app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req, res) => {
+  const { name, email, password, reg_no, class_dept, section, media } = req.body;
+  
+  console.log("=== STUDENT REGISTRATION ATTEMPT ===");
+  console.log("Name:", name);
+  console.log("Email:", email);
+  console.log("Reg No:", reg_no);
+  console.log("Class/Dept:", class_dept);
+  console.log("Section:", section);
+  console.log("Media:", media);
+  
+  try {
+    // Validate required fields
+    if (!name || !email || !password) {
+      console.log("❌ Missing required fields");
+      return res.status(400).json({ error: "Name, email, and password are required" });
+    }
+    
+    // Validate email format
+    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+    if (!emailRegex.test(email)) {
+      console.log("❌ Invalid email format:", email);
+      return res.status(400).json({ error: "Invalid email format. Please use a complete email address (e.g., user@example.com)" });
+    }
+    
+    console.log("✓ Validation passed, hashing password...");
+    const hashed = await bcrypt.hash(password, SALT_ROUNDS);
+    
+    console.log("✓ Password hashed, inserting into database...");
+    const query = `INSERT INTO students (name, email, password, reg_no, class_dept, section, media) 
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+    const values = [name, email, hashed, reg_no, class_dept, section, media || {}];
+    
+    await pool.query(query, values);
+    console.log("✓ Student registered successfully!");
+    res.status(201).json({ success: true });
+  } catch (err) {
+    console.error("❌ Registration Error:", err.message);
+    console.error("Error Code:", err.code);
+    console.error("Error Detail:", err.detail);
+    
+    // Check for duplicate email
+    if (err.code === '23505') {
+      return res.status(400).json({ error: "Email already exists. Please use a different email address." });
+    }
+    // Check for email format constraint
+    if (err.message.includes('chk_email_format')) {
+      return res.status(400).json({ error: "Invalid email format. Please enter a complete email address." });
+    }
+    res.status(500).json({ error: "Database Error: " + err.message });
+  }
+});
+
+// 5. Teacher List (For Allocation)
+app.get('/api/teachers', authenticateToken, adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, name, staff_id, dept, allocated_sections FROM teachers ORDER BY name ASC');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Update Allocation (Old - keeping for backward compatibility)
+app.put('/api/teachers/:id/allocate', authenticateToken, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const { sections } = req.body; // Expects an array: ["CSE A", "ECE B"]
+  try {
+    await pool.query('UPDATE teachers SET allocated_sections = $1 WHERE id = $2', [JSON.stringify(sections), id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7a. Admin: Update Teacher
+app.put('/api/admin/teacher/:id', authenticateToken, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, staff_id, dept } = req.body;
+  try {
+    await pool.query(
+      'UPDATE teachers SET name = $1, email = $2, staff_id = $3, dept = $4 WHERE id = $5',
+      [name, email, staff_id, dept, id]
+    );
+    res.json({ success: true, message: "Teacher updated successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7b. Admin: Delete Teacher
+app.delete('/api/admin/teacher/:id', authenticateToken, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM teachers WHERE id = $1', [id]);
+    res.json({ success: true, message: "Teacher deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7c. Admin: Update Student
+app.put('/api/admin/student/:id', authenticateToken, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, reg_no, class_dept, section } = req.body;
+  try {
+    await pool.query(
+      'UPDATE students SET name = $1, email = $2, reg_no = $3, class_dept = $4, section = $5 WHERE id = $6',
+      [name, email, reg_no, class_dept, section, id]
+    );
+    res.json({ success: true, message: "Student updated successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7d. Admin: Delete Student
+app.delete('/api/admin/student/:id', authenticateToken, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM students WHERE id = $1', [id]);
+    res.json({ success: true, message: "Student deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7e. Admin: Get All Students
+app.get('/api/admin/students', authenticateToken, adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, name, email, reg_no, class_dept, section, created_at FROM students ORDER BY created_at DESC'
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7f. Admin: Get All Teachers
+app.get('/api/admin/teachers', authenticateToken, adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, name, email, staff_id, dept, allocated_sections, created_at FROM teachers ORDER BY created_at DESC'
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7g. Admin: Allocate Teacher to Students (Many-to-Many)
+app.post('/api/admin/allocate', authenticateToken, adminOnly, async (req, res) => {
+  const { teacher_id, student_ids, subject } = req.body;
+  try {
+    // Delete existing allocations for this teacher and subject
+    await pool.query(
+      'DELETE FROM teacher_student_allocations WHERE teacher_id = $1 AND subject = $2',
+      [teacher_id, subject]
+    );
+    
+    // Insert new allocations
+    for (const student_id of student_ids) {
+      await pool.query(
+        'INSERT INTO teacher_student_allocations (teacher_id, student_id, subject) VALUES ($1, $2, $3) ON CONFLICT (teacher_id, student_id, subject) DO NOTHING',
+        [teacher_id, student_id, subject]
+      );
+    }
+    
+    res.json({ success: true, message: "Allocation updated successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7h. Admin: Get Teacher's Students
+app.get('/api/admin/teacher/:id/students', authenticateToken, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      'SELECT * FROM v_teacher_students WHERE teacher_id = $1 ORDER BY student_name',
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7i. Admin: Get Student's Teachers
+app.get('/api/admin/student/:id/teachers', authenticateToken, adminOnly, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      'SELECT * FROM v_student_teachers WHERE student_id = $1 ORDER BY teacher_name',
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// 8. Fetch Teacher Profile (for Dashboard)
+app.get('/api/teacher/me', authenticateToken, async (req, res) => {
+  try {
+    // req.user.id comes from the decoded JWT token
+    const result = await pool.query(
+      'SELECT id, name, email, staff_id, dept, media, allocated_sections FROM teachers WHERE id = $1', 
+      [req.user.id]
+    );
+    
+    if (result.rows.length === 0) return res.status(404).json({ error: "Teacher not found" });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 8b. Teacher: Get My Allocated Students
+app.get('/api/teacher/my-students', authenticateToken, async (req, res) => {
+  try {
+    const teacher_id = req.user.id;
+    
+    const result = await pool.query(
+      'SELECT * FROM v_teacher_students WHERE teacher_id = $1 ORDER BY student_name',
+      [teacher_id]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 9. Fetch Students for a specific section
+app.get('/api/teacher/students/:section', authenticateToken, async (req, res) => {
+  const fullSectionString = req.params.section; // e.g., "ECE A" or "ece a"
+
+  try {
+    // 1. Split "ECE A" into ["ECE", "A"]
+    const parts = fullSectionString.trim().split(/\s+/); 
+    const deptPart = parts[0];    // "ECE"
+    const sectionPart = parts[1]; // "A"
+
+    // 2. Query using LOWER() on both the column and the parameter
+    const result = await pool.query(
+      `SELECT id, name, reg_no, class_dept, section, media 
+       FROM students 
+       WHERE LOWER(class_dept) = LOWER($1) 
+       AND LOWER(section) = LOWER($2) 
+       ORDER BY name ASC`,
+      [deptPart, sectionPart]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch Students Error:", err.message);
+    res.status(500).json({ error: "Failed to load roster" });
+  }
+});
+
+// --- ROUTES: MEDIA ---
+
+// 7. Media Upload (Images and Videos)
+app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
+  try {
+    console.log("Upload request received");
+    console.log("File:", req.file);
+    
+    if (!req.file) {
+      console.error("No file in request");
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+    
+    console.log("File uploaded successfully:", req.file.path);
+    
+    res.json({ 
+      url: req.file.path, 
+      public_id: req.file.filename,
+      type: req.file.mimetype,
+      resource_type: req.file.mimetype.startsWith('video/') ? 'video' : 'image'
+    });
+  } catch (err) {
+    console.error("Upload error:", err);
+    res.status(500).json({ error: "Upload failed: " + err.message });
+  }
+});
+
+// FETCH INDIVIDUAL STUDENT PROFILE
+// FETCH STUDENT PROFILE WITH PHOTO
+app.get('/api/student/profile', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, name, email, reg_no, class_dept, section, media FROM students WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: "Student not found" });
+
+    const student = result.rows[0];
+    
+    // Get module progress
+    const progressResult = await pool.query(
+      'SELECT * FROM v_student_module_progress WHERE student_id = $1',
+      [req.user.id]
+    );
+    
+    const moduleProgress = progressResult.rows[0] || {
+      total_modules: 0,
+      completed_modules: 0,
+      completion_percentage: 0
+    };
+    
+    // Extract the image URL if it exists, otherwise provide a null
+    const profilePic = student.media && student.media.url ? student.media.url : null;
+
+    res.json({
+      ...student,
+      profilePic,
+      progress: {
+        modulesFinished: moduleProgress.completed_modules,
+        totalModules: moduleProgress.total_modules,
+        wellbeingScore: Math.round(moduleProgress.completion_percentage)
+      }
+    });
+  } catch (err) {
+    console.error("Student Profile Error:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+
+// --- ROUTES: MODULE MANAGEMENT ---
+
+// 10. Teacher: Upload/Publish New Module
+app.post('/api/teacher/upload-module', authenticateToken, async (req, res) => {
+  try {
+    const { section, subject, topic, steps } = req.body;
+    const teacherId = req.user.id;
+
+    if (!subject) {
+      return res.status(400).json({ error: "Subject is required" });
+    }
+
+    // Get teacher name for display
+    const teacherResult = await pool.query('SELECT name FROM teachers WHERE id = $1', [teacherId]);
+    const teacherName = teacherResult.rows[0]?.name || 'Unknown';
+
+    // Insert module with steps as JSONB
+    const query = `
+      INSERT INTO modules (section, subject, topic_title, teacher_id, teacher_name, step_count, steps) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7) 
+      RETURNING id
+    `;
+    const values = [section, subject, topic, teacherId, teacherName, steps.length, JSON.stringify(steps)];
+    
+    const result = await pool.query(query, values);
+    res.status(201).json({ success: true, moduleId: result.rows[0].id });
+  } catch (err) {
+    console.error("Module Upload Error:", err);
+    res.status(500).json({ error: "Failed to publish module: " + err.message });
+  }
+});
+
+// 11. Teacher: Fetch Modules for a Section
+app.get('/api/teacher/modules/:section', authenticateToken, async (req, res) => {
+  try {
+    const section = req.params.section;
+    
+    const result = await pool.query(
+      `SELECT id, topic_title, teacher_name, step_count, created_at 
+       FROM modules 
+       WHERE LOWER(section) = LOWER($1) 
+       ORDER BY created_at DESC`,
+      [section]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch Modules Error:", err);
+    res.status(500).json({ error: "Failed to load modules" });
+  }
+});
+
+// 11b. Teacher: Get Single Module (for editing)
+app.get('/api/teacher/module/:moduleId', authenticateToken, async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId;
+    const teacherId = req.user.id;
+    
+    const result = await pool.query(
+      'SELECT * FROM modules WHERE id = $1 AND teacher_id = $2',
+      [moduleId, teacherId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Module not found" });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Fetch Module Error:", err);
+    res.status(500).json({ error: "Failed to load module" });
+  }
+});
+
+// 11c. Teacher: Update/Edit Module
+app.put('/api/teacher/module/:moduleId', authenticateToken, async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId;
+    const { topic, subject, steps } = req.body;
+    const teacherId = req.user.id;
+    
+    // Verify teacher owns this module
+    const checkOwner = await pool.query(
+      'SELECT id FROM modules WHERE id = $1 AND teacher_id = $2',
+      [moduleId, teacherId]
+    );
+    
+    if (checkOwner.rows.length === 0) {
+      return res.status(403).json({ error: "Not authorized to edit this module" });
+    }
+    
+    // Update module
+    const query = `
+      UPDATE modules 
+      SET topic_title = $1, subject = $2, steps = $3, step_count = $4
+      WHERE id = $5
+      RETURNING id
+    `;
+    
+    await pool.query(query, [topic, subject, JSON.stringify(steps), steps.length, moduleId]);
+    res.json({ success: true, message: "Module updated successfully" });
+  } catch (err) {
+    console.error("Module Update Error:", err);
+    res.status(500).json({ error: "Failed to update module: " + err.message });
+  }
+});
+
+// 11c. Teacher: Delete Module
+app.delete('/api/teacher/module/:moduleId', authenticateToken, async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId;
+    const teacherId = req.user.id;
+    
+    // Verify teacher owns this module
+    const checkOwner = await pool.query(
+      'SELECT id FROM modules WHERE id = $1 AND teacher_id = $2',
+      [moduleId, teacherId]
+    );
+    
+    if (checkOwner.rows.length === 0) {
+      return res.status(403).json({ error: "Not authorized to delete this module" });
+    }
+    
+    // Delete module
+    await pool.query('DELETE FROM modules WHERE id = $1', [moduleId]);
+    res.json({ success: true, message: "Module deleted successfully" });
+  } catch (err) {
+    console.error("Module Delete Error:", err);
+    res.status(500).json({ error: "Failed to delete module: " + err.message });
+  }
+});
+
+// 12. Student: Fetch My Modules (Based on Student's Section)
+app.get('/api/student/my-modules', authenticateToken, async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    
+    // Get student's section
+    const studentResult = await pool.query(
+      'SELECT class_dept, section FROM students WHERE id = $1',
+      [studentId]
+    );
+    
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+    
+    const { class_dept, section } = studentResult.rows[0];
+    const fullSection = `${class_dept} ${section}`; // e.g., "ECE A"
+    
+    // Fetch modules for this section
+    const modulesResult = await pool.query(
+      `SELECT id, topic_title, teacher_name, step_count, created_at 
+       FROM modules 
+       WHERE LOWER(section) = LOWER($1) 
+       ORDER BY created_at DESC`,
+      [fullSection]
+    );
+    
+    res.json(modulesResult.rows);
+  } catch (err) {
+    console.error("Student Modules Error:", err);
+    res.status(500).json({ error: "Failed to load your modules" });
+  }
+});
+
+// 13. Student: Fetch Specific Module Content (All Steps)
+app.get('/api/student/module/:moduleId', authenticateToken, async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId;
+    const studentId = req.user.id;
+    
+    const result = await pool.query(
+      'SELECT steps FROM modules WHERE id = $1',
+      [moduleId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Module not found" });
+    }
+    
+    // Track module access
+    await pool.query('SELECT track_module_access($1, $2)', [studentId, moduleId]);
+    
+    // steps is stored as JSONB, so it's already parsed
+    const steps = result.rows[0].steps;
+    
+    // Transform the steps to match frontend expectations
+    const formattedSteps = steps.map((step, index) => ({
+      id: index + 1,
+      step_type: step.type,
+      content_text: typeof step.data === 'string' ? step.data : step.data.question || '',
+      mcq_data: step.type === 'mcq' ? step.data : null
+    }));
+    
+    res.json(formattedSteps);
+  } catch (err) {
+    console.error("Module Content Error:", err);
+    res.status(500).json({ error: "Failed to load module content" });
+  }
+});
+
+// 13b. Student: Mark Module as Complete
+app.post('/api/student/module/:moduleId/complete', authenticateToken, async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId;
+    const studentId = req.user.id;
+    
+    await pool.query('SELECT mark_module_complete($1, $2)', [studentId, moduleId]);
+    
+    res.json({ success: true, message: "Module marked as complete" });
+  } catch (err) {
+    console.error("Mark Complete Error:", err);
+    res.status(500).json({ error: "Failed to mark module complete" });
+  }
+});
+
+// 13c. Student: Get My Module Progress
+app.get('/api/student/module-progress', authenticateToken, async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    
+    const result = await pool.query(
+      'SELECT * FROM v_student_module_progress WHERE student_id = $1',
+      [studentId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({
+        total_modules: 0,
+        completed_modules: 0,
+        pending_modules: 0,
+        completion_percentage: 0
+      });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Module Progress Error:", err);
+    res.status(500).json({ error: "Failed to load module progress" });
+  }
+});
+
+// 13d. Teacher: Get Module Statistics
+app.get('/api/teacher/module/:moduleId/statistics', authenticateToken, async (req, res) => {
+  try {
+    const moduleId = req.params.moduleId;
+    
+    const result = await pool.query(
+      'SELECT * FROM v_module_statistics WHERE module_id = $1',
+      [moduleId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Module not found" });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Module Statistics Error:", err);
+    res.status(500).json({ error: "Failed to load module statistics" });
+  }
+});
+
+// 13e. Teacher: Get Student's Module Progress
+app.get('/api/teacher/student/:studentId/module-progress', authenticateToken, async (req, res) => {
+  try {
+    const studentId = req.params.studentId;
+    
+    const result = await pool.query(
+      'SELECT * FROM v_student_module_progress WHERE student_id = $1',
+      [studentId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({
+        total_modules: 0,
+        completed_modules: 0,
+        pending_modules: 0,
+        completion_percentage: 0
+      });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Student Module Progress Error:", err);
+    res.status(500).json({ error: "Failed to load student module progress" });
+  }
+});
+
+// --- ROUTES: MCQ TEST SYSTEM ---
+
+// 14. Teacher: Create MCQ Test
+app.post('/api/teacher/test/create', authenticateToken, async (req, res) => {
+  try {
+    const { section, title, description, questions, start_date, deadline } = req.body;
+    const teacher_id = req.user.id;
+    
+    // Get teacher name
+    const teacherResult = await pool.query('SELECT name FROM teachers WHERE id = $1', [teacher_id]);
+    const teacher_name = teacherResult.rows[0]?.name || 'Unknown';
+    
+    const query = `
+      INSERT INTO mcq_tests (teacher_id, teacher_name, section, title, description, questions, total_questions, start_date, deadline)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `;
+    
+    const result = await pool.query(query, [
+      teacher_id, teacher_name, section, title, description,
+      JSON.stringify(questions), questions.length, start_date, deadline
+    ]);
+    
+    res.status(201).json({ success: true, test: result.rows[0] });
+  } catch (err) {
+    console.error("Test Creation Error:", err);
+    res.status(500).json({ error: "Failed to create test: " + err.message });
+  }
+});
+
+// 15. Teacher: Get All Tests for Section
+app.get('/api/teacher/tests/:section', authenticateToken, async (req, res) => {
+  try {
+    const section = req.params.section;
+    
+    const result = await pool.query(
+      `SELECT * FROM v_test_statistics 
+       WHERE LOWER(section) = LOWER($1) 
+       ORDER BY deadline DESC`,
+      [section]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch Tests Error:", err);
+    res.status(500).json({ error: "Failed to load tests" });
+  }
+});
+
+// 16. Teacher: Get Test Submissions (who submitted)
+app.get('/api/teacher/test/:testId/submissions', authenticateToken, async (req, res) => {
+  try {
+    const test_id = req.params.testId;
+    
+    const result = await pool.query(
+      `SELECT 
+        id, student_name, student_reg_no, score, percentage, status, submitted_at, time_taken
+       FROM test_submissions
+       WHERE test_id = $1
+       ORDER BY submitted_at DESC`,
+      [test_id]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Fetch Submissions Error:", err);
+    res.status(500).json({ error: "Failed to load submissions" });
+  }
+});
+
+// 17. Teacher: Get Student's Detailed Progress
+app.get('/api/teacher/student/:studentId/progress', authenticateToken, async (req, res) => {
+  try {
+    const student_id = req.params.studentId;
+    
+    // Get student basic info
+    const studentResult = await pool.query(
+      'SELECT * FROM v_student_test_progress WHERE student_id = $1',
+      [student_id]
+    );
+    
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+    
+    // Get detailed test history
+    const testsResult = await pool.query(
+      'SELECT * FROM get_student_detailed_progress($1)',
+      [student_id]
+    );
+    
+    res.json({
+      student: studentResult.rows[0],
+      tests: testsResult.rows
+    });
+  } catch (err) {
+    console.error("Student Progress Error:", err);
+    res.status(500).json({ error: "Failed to load student progress" });
+  }
+});
+
+// 18. Student: Get My Tests (Pending & Completed)
+app.get('/api/student/tests', authenticateToken, async (req, res) => {
+  try {
+    const student_id = req.user.id;
+    
+    // Get student's section
+    const studentResult = await pool.query(
+      'SELECT class_dept, section FROM students WHERE id = $1',
+      [student_id]
+    );
+    
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+    
+    const { class_dept, section } = studentResult.rows[0];
+    const full_section = `${class_dept} ${section}`;
+    
+    // Get all tests with submission status
+    const result = await pool.query(
+      `SELECT 
+        t.id,
+        t.title,
+        t.description,
+        t.total_questions,
+        t.deadline,
+        t.teacher_name,
+        sub.id as submission_id,
+        sub.score,
+        sub.percentage,
+        sub.status,
+        sub.submitted_at,
+        CASE 
+          WHEN sub.id IS NULL THEN 'pending'
+          ELSE 'completed'
+        END as completion_status,
+        CASE 
+          WHEN t.deadline < CURRENT_TIMESTAMP AND sub.id IS NULL THEN true
+          ELSE false
+        END as is_overdue
+       FROM mcq_tests t
+       LEFT JOIN test_submissions sub ON t.id = sub.test_id AND sub.student_id = $1
+       WHERE LOWER(t.section) = LOWER($2) AND t.is_active = true
+       ORDER BY t.deadline ASC`,
+      [student_id, full_section]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Student Tests Error:", err);
+    res.status(500).json({ error: "Failed to load tests" });
+  }
+});
+
+// 19. Student: Get Test to Take
+app.get('/api/student/test/:testId', authenticateToken, async (req, res) => {
+  try {
+    const test_id = req.params.testId;
+    const student_id = req.user.id;
+    
+    // Check if already submitted
+    const submissionCheck = await pool.query(
+      'SELECT id FROM test_submissions WHERE test_id = $1 AND student_id = $2',
+      [test_id, student_id]
+    );
+    
+    if (submissionCheck.rows.length > 0) {
+      return res.status(400).json({ error: "Test already submitted" });
+    }
+    
+    // Get test details
+    const result = await pool.query(
+      'SELECT id, title, description, questions, total_questions, deadline FROM mcq_tests WHERE id = $1 AND is_active = true',
+      [test_id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Test not found" });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Test Details Error:", err);
+    res.status(500).json({ error: "Failed to load test" });
+  }
+});
+
+// 20. Student: Submit Test
+app.post('/api/student/test/submit', authenticateToken, async (req, res) => {
+  try {
+    const { test_id, answers, time_taken } = req.body;
+    const student_id = req.user.id;
+    
+    console.log("=== TEST SUBMISSION DEBUG ===");
+    console.log("Test ID:", test_id);
+    console.log("Student Answers:", answers);
+    
+    // Get student info
+    const studentResult = await pool.query(
+      'SELECT name, reg_no FROM students WHERE id = $1',
+      [student_id]
+    );
+    
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+    
+    const { name, reg_no } = studentResult.rows[0];
+    
+    // Get test questions to calculate score
+    const testResult = await pool.query(
+      'SELECT questions, total_questions, deadline FROM mcq_tests WHERE id = $1',
+      [test_id]
+    );
+    
+    if (testResult.rows.length === 0) {
+      return res.status(404).json({ error: "Test not found" });
+    }
+    
+    const { questions, total_questions, deadline } = testResult.rows[0];
+    console.log("Test Questions:", questions);
+    
+    // CALCULATE SCORE IN BACKEND (more reliable than SQL trigger)
+    let correct_count = 0;
+    
+    for (let i = 0; i < questions.length; i++) {
+      const question = questions[i];
+      const studentAnswer = answers[i.toString()]; // answers is {"0": "A", "1": "B", ...}
+      const correctAnswer = question.correct;
+      
+      console.log(`Q${i}: Student="${studentAnswer}" vs Correct="${correctAnswer}"`);
+      
+      // Case-insensitive comparison
+      if (studentAnswer && correctAnswer && 
+          studentAnswer.toUpperCase().trim() === correctAnswer.toUpperCase().trim()) {
+        correct_count++;
+        console.log(`  ✓ MATCH`);
+      } else {
+        console.log(`  ✗ NO MATCH`);
+      }
+    }
+    
+    const score = correct_count;
+    const percentage = total_questions > 0 ? ((correct_count / total_questions) * 100).toFixed(2) : 0;
+    
+    // Check if late submission
+    const isLate = new Date() > new Date(deadline);
+    const status = isLate ? 'late' : 'completed';
+    
+    console.log(`Final Score: ${score}/${total_questions} = ${percentage}%`);
+    console.log("=== END DEBUG ===");
+    
+    // Insert submission with calculated score
+    const query = `
+      INSERT INTO test_submissions (test_id, student_id, student_name, student_reg_no, answers, score, percentage, status, time_taken)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `;
+    
+    const result = await pool.query(query, [
+      test_id, student_id, name, reg_no, JSON.stringify(answers), score, percentage, status, time_taken
+    ]);
+    
+    console.log("Submission saved:", result.rows[0]);
+    
+    res.json({ success: true, submission: result.rows[0] });
+  } catch (err) {
+    console.error("Test Submission Error:", err);
+    res.status(500).json({ error: "Failed to submit test: " + err.message });
+  }
+});
+
+// 21. Student: Get My Progress Overview
+app.get('/api/student/progress', authenticateToken, async (req, res) => {
+  try {
+    const student_id = req.user.id;
+    
+    const result = await pool.query(
+      'SELECT * FROM v_student_test_progress WHERE student_id = $1',
+      [student_id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({
+        total_tests_assigned: 0,
+        tests_completed: 0,
+        tests_overdue: 0,
+        average_score: 0
+      });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Progress Error:", err);
+    res.status(500).json({ error: "Failed to load progress" });
+  }
+});
+
+// --- ROUTES: CODING WORKBENCH ---
+
+// 22. Student: Submit Code Solution
+app.post('/api/student/submit-code', authenticateToken, async (req, res) => {
+  try {
+    const { moduleId, code, language, testCases } = req.body;
+    const studentId = req.user.id;
+    const studentEmail = req.user.email;
+
+    if (!testCases || testCases.length === 0) {
+      return res.status(400).json({ error: "No test cases provided." });
+    }
+
+    let passedCount = 0;
+
+    // --- EVALUATION LOOP ---
+    for (const tc of testCases) {
+      const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language: language,
+          version: "*",
+          files: [{ content: code }],
+          stdin: tc.input,
+        }),
+      });
+
+      const result = await response.json();
+      const actualOutput = (result.run.stdout || "").trim();
+
+      // Compare output with expected result
+      if (actualOutput === tc.expected.trim()) {
+        passedCount++;
+      }
+    }
+
+    // --- CALCULATION ---
+    const totalCases = testCases.length;
+    const finalScore = ((passedCount / totalCases) * 100).toFixed(2);
+
+    // --- DATABASE STORAGE ---
+    const query = `
+      INSERT INTO student_submissions (student_id, student_email, module_id, submitted_code, language, test_cases_passed, total_test_cases, score) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+      RETURNING score, test_cases_passed, total_test_cases;
+    `;
+    const values = [studentId, studentEmail, moduleId, code, language, passedCount, totalCases, finalScore];
+    const dbResult = await pool.query(query, values);
+
+    // --- RESPONSE FOR POPUP ---
+    res.json({ 
+      success: true, 
+      score: dbResult.rows[0].score, 
+      passed: dbResult.rows[0].test_cases_passed, 
+      total: dbResult.rows[0].total_test_cases 
+    });
+  } catch (err) {
+    console.error("SERVER ERROR:", err.message);
+    res.status(500).json({ error: "Internal Server Error: " + err.message });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`🚀 SERVER ACTIVE ON PORT ${PORT}`));
