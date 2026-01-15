@@ -7,6 +7,7 @@ const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 const notificationService = require('./notificationService');
 
 const app = express();
@@ -77,6 +78,15 @@ const adminOnly = (req, res, next) => {
 
 // --- ROUTES: AUTHENTICATION ---
 
+
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: 'susclass.global@gmail.com', // Your actual Gmail
+        pass: 'gbrv skhz axve aegs' // Your Google App Password (no spaces)
+    }
+});
+
 // 1. Admin Login (Env based)
 app.post('/api/admin/login', (req, res) => {
   const { email, password } = req.body;
@@ -90,38 +100,100 @@ app.post('/api/admin/login', (req, res) => {
 
 // 2. Universal Login (Student/Teacher)
 app.post('/api/login', async (req, res) => {
-  const { email, password, role } = req.body;
-  const activeRole = role.toLowerCase();
-  const table = activeRole === 'student' ? 'students' : 'teachers';
+    const { email, password, role } = req.body;
+    const activeRole = role.toLowerCase();
+    const table = activeRole === 'student' ? 'students' : 'teachers';
 
-  try {
-    // Case-insensitive lookup using LOWER()
-    const result = await pool.query(`SELECT * FROM ${table} WHERE LOWER(email) = LOWER($1)`, [email]);
-    
-    if (result.rows.length > 0) {
-      const user = result.rows[0];
-      const isMatch = await bcrypt.compare(password, user.password);
-      
-      if (isMatch) {
-        // Uniform token payload for both roles
-        const token = jwt.sign(
-          { id: user.id, email: user.email, role: activeRole }, 
-          JWT_SECRET, 
-          { expiresIn: '24h' }
+    try {
+        const result = await pool.query(`SELECT * FROM ${table} WHERE LOWER(email) = LOWER($1)`, [email]);
+        
+        if (result.rows.length > 0) {
+            const user = result.rows[0];
+            const isMatch = await bcrypt.compare(password, user.password);
+            
+            if (isMatch) {
+                const otp = Math.floor(100000 + Math.random() * 900000).toString();
+                const otpExpiry = new Date(Date.now() + 5 * 60000); // 5 mins
+
+                await pool.query(
+                    `UPDATE ${table} SET otp_code = $1, otp_expiry = $2 WHERE id = $3`,
+                    [otp, otpExpiry, user.id]
+                );
+
+                // --- TWEAKED: Sending real email instead of console.log ---
+                const mailOptions = {
+                    from: 'susclass.global@gmail.com',
+                    to: email, // Sends to the email the user just typed in the login form
+                    subject: 'Your Portal Access Code',
+                    html: `
+                        <div style="font-family: sans-serif; text-align: center; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                            <h2 style="color: #333;">Security Verification</h2>
+                            <p style="color: #666;">Use the code below to complete your login:</p>
+                            <h1 style="color: #10b981; font-size: 40px; letter-spacing: 5px;">${otp}</h1>
+                            <p style="color: #999; font-size: 12px;">This code expires in 5 minutes.</p>
+                        </div>
+                    `
+                };
+
+                await transporter.sendMail(mailOptions);
+                
+                // Return same response to keep your frontend working perfectly
+                res.json({ success: true, mfaRequired: true, email: user.email });
+            } else {
+                res.status(401).json({ success: false, message: "Incorrect Password" });
+            }
+        } else {
+            res.status(404).json({ success: false, message: "Account not found" });
+        }
+    } catch (err) {
+        console.error("Mail/Login Error:", err);
+        res.status(500).json({ error: "Database or Mailer error" });
+    }
+});
+// 3. Verify OTP - Step 2: The Final Authentication
+// 3. Verify OTP - Step 2: The Final Authentication
+// This must be a separate block from the login block!
+app.post('/api/verify-otp', async (req, res) => {
+    const { email, otp, role } = req.body;
+    const table = role.toLowerCase() === 'student' ? 'students' : 'teachers';
+
+    try {
+        // Look for a user where email and otp match, and time has not run out
+        const result = await pool.query(
+            `SELECT * FROM ${table} WHERE LOWER(email) = LOWER($1) AND otp_code = $2 AND otp_expiry > NOW()`,
+            [email, otp]
         );
 
-        delete user.password; // Security: Remove hash from response
-        res.json({ success: true, token, user: { ...user, role: activeRole } });
-      } else {
-        res.status(401).json({ success: false, message: "Incorrect Password" });
-      }
-    } else {
-      res.status(404).json({ success: false, message: `Account not found in ${activeRole} records` });
+        if (result.rows.length > 0) {
+            const user = result.rows[0];
+
+            // SECURITY: Clear OTP immediately so it can't be used again
+            await pool.query(
+                `UPDATE ${table} SET otp_code = NULL, otp_expiry = NULL WHERE id = $1`, 
+                [user.id]
+            );
+
+            // Correct code! Now generate the JWT Token for the frontend
+            const token = jwt.sign(
+                { id: user.id, email: user.email, role: role.toLowerCase() }, 
+                JWT_SECRET, 
+                { expiresIn: '24h' }
+            );
+
+            delete user.password; // Don't send the password hash back to the browser
+            res.json({ 
+                success: true, 
+                token, 
+                user: { ...user, role: role.toLowerCase() } 
+            });
+        } else {
+            // Either the code is wrong, or it expired (5 min limit)
+            res.status(401).json({ success: false, message: "Invalid or Expired OTP" });
+        }
+    } catch (err) {
+        console.error("OTP Verification Error:", err);
+        res.status(500).json({ error: "Database error during verification" });
     }
-  } catch (err) {
-    console.error("Login Error:", err);
-    res.status(500).json({ error: "Database error during login" });
-  }
 });
 
 // --- ROUTES: ADMIN MANAGEMENT ---
@@ -735,27 +807,24 @@ app.get('/api/student/module/:moduleId', authenticateToken, async (req, res) => 
       [moduleId]
     );
     
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Module not found" });
-    }
+    if (result.rows.length === 0) return res.status(404).json({ error: "Module not found" });
     
-    // Track module access
+    // Log module access for teacher analytics
     await pool.query('SELECT track_module_access($1, $2)', [studentId, moduleId]);
     
-    // steps is stored as JSONB, so it's already parsed
     const steps = result.rows[0].steps;
     
-    // Transform the steps to match frontend expectations
+    // Format steps for the frontend
     const formattedSteps = steps.map((step, index) => ({
       id: index + 1,
-      step_type: step.type,
-      content_text: typeof step.data === 'string' ? step.data : step.data.question || '',
-      mcq_data: step.type === 'mcq' ? step.data : null
+      step_type: step.type, // 'video', 'content', 'mcq', or 'coding'
+      // This is what the frontend is looking for:
+      mcq_data: step.data, 
+      content_text: step.data.description || step.data.question || ''
     }));
     
     res.json(formattedSteps);
   } catch (err) {
-    console.error("Module Content Error:", err);
     res.status(500).json({ error: "Failed to load module content" });
   }
 });
@@ -820,6 +889,69 @@ app.get('/api/teacher/module/:moduleId/statistics', authenticateToken, async (re
     console.error("Module Statistics Error:", err);
     res.status(500).json({ error: "Failed to load module statistics" });
   }
+});
+
+app.post('/api/student/submit-code', authenticateToken, async (req, res) => {
+    try {
+        const { moduleId, code, language, testCases } = req.body;
+        const studentId = req.user.id;
+        const studentEmail = req.user.email;
+
+        if (!testCases || testCases.length === 0) {
+            return res.status(400).json({ error: "No test cases provided." });
+        }
+
+        let passedCount = 0;
+
+        // --- EVALUATION LOOP ---
+        for (const tc of testCases) {
+            const response = await fetch("https://emkc.org/api/v2/piston/execute", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    language: language,
+                    version: "*",
+                    files: [{ content: code }],
+                    stdin: tc.input,
+                }),
+            });
+
+            const result = await response.json();
+            const actualOutput = (result.run.stdout || "").trim();
+            
+            // Compare output with expected result
+            if (actualOutput === tc.expected.trim()) {
+                passedCount++;
+            }
+        }
+
+        // --- CALCULATION ---
+        const totalCases = testCases.length;
+        const finalScore = ((passedCount / totalCases) * 100).toFixed(2);
+
+        // --- DATABASE STORAGE ---
+        const query = `
+            INSERT INTO student_submissions 
+            (student_id, student_email, module_id, submitted_code, language, test_cases_passed, total_test_cases, score) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+            RETURNING score, test_cases_passed, total_test_cases;
+        `;
+        
+        const values = [studentId, studentEmail, moduleId, code, language, passedCount, totalCases, finalScore];
+        const dbResult = await pool.query(query, values);
+
+        // --- RESPONSE FOR POPUP ---
+        res.json({ 
+            success: true, 
+            score: dbResult.rows[0].score, 
+            passed: dbResult.rows[0].test_cases_passed, 
+            total: dbResult.rows[0].total_test_cases 
+        });
+
+    } catch (err) {
+        console.error("SERVER ERROR:", err.message);
+        res.status(500).json({ error: "Internal Server Error: " + err.message });
+    }
 });
 
 // 13e. Teacher: Get Student's Module Progress
