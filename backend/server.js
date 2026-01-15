@@ -1562,5 +1562,10 @@ if (process.env.ENABLE_DEV_ENDPOINTS === 'true' || process.env.NODE_ENV !== 'pro
   });
 }
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 SERVER ACTIVE ON PORT ${PORT}`));
+// Export app for testing, only listen if run directly
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => console.log(`🚀 SERVER ACTIVE ON PORT ${PORT}`));
+}
+
+module.exports = app;
