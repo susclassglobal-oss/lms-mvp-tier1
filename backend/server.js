@@ -229,7 +229,7 @@ app.post('/api/admin/register-teacher', authenticateToken, adminOnly, async (req
     const result = await pool.query(query, values);
     const teacherId = result.rows[0].id;
     
-    // 🔔 NOTIFICATION: Welcome email
+    // NOTIFICATION: Welcome email
     try {
       const teacher = {
         id: teacherId,
@@ -249,7 +249,7 @@ app.post('/api/admin/register-teacher', authenticateToken, adminOnly, async (req
         },
         { teacher_id: teacherId }
       );
-      console.log(`✓ Sent ACCOUNT_CREATED notification to teacher ${name}`);
+      console.log(`[OK] Sent ACCOUNT_CREATED notification to teacher ${name}`);
     } catch (notifErr) {
       console.error('Welcome notification error (non-blocking):', notifErr);
     }
@@ -282,23 +282,23 @@ app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req
     // Validate email format
     const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
     if (!emailRegex.test(email)) {
-      console.log("❌ Invalid email format:", email);
+      console.log("[ERR] Invalid email format:", email);
       return res.status(400).json({ error: "Invalid email format. Please use a complete email address (e.g., user@example.com)" });
     }
     
-    console.log("✓ Validation passed, hashing password...");
+    console.log("[OK] Validation passed, hashing password...");
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
     
-    console.log("✓ Password hashed, inserting into database...");
+    console.log("[OK] Password hashed, inserting into database...");
     const query = `INSERT INTO students (name, email, password, reg_no, class_dept, section, media) 
                    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
     const values = [name, email, hashed, reg_no, class_dept, section, media || {}];
     
     const result = await pool.query(query, values);
     const studentId = result.rows[0].id;
-    console.log("✓ Student registered successfully!");
+    console.log("[OK] Student registered successfully!");
     
-    // 🔔 NOTIFICATION: Welcome email
+    // NOTIFICATION: Welcome email
     try {
       const student = {
         id: studentId,
@@ -319,14 +319,14 @@ app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req
         },
         { student_id: studentId }
       );
-      console.log(`✓ Sent ACCOUNT_CREATED notification to student ${name}`);
+      console.log(`[OK] Sent ACCOUNT_CREATED notification to student ${name}`);
     } catch (notifErr) {
       console.error('Welcome notification error (non-blocking):', notifErr);
     }
     
     res.status(201).json({ success: true });
   } catch (err) {
-    console.error("❌ Registration Error:", err.message);
+    console.error("[ERR] Registration Error:", err.message);
     console.error("Error Code:", err.code);
     console.error("Error Detail:", err.detail);
     
@@ -622,6 +622,156 @@ app.get('/api/student/profile', authenticateToken, studentOnly, async (req, res)
   }
 });
 
+// --- PASSWORD CHANGE ROUTES ---
+
+// Student: Change own password
+app.post('/api/student/change-password', authenticateToken, studentOnly, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const studentId = req.user.id;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Current password and new password are required" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    }
+
+    // Get current password hash
+    const result = await pool.query('SELECT password FROM students WHERE id = $1', [studentId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    // Verify current password
+    const isValid = await bcrypt.compare(currentPassword, result.rows[0].password);
+    if (!isValid) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+
+    // Hash new password and update
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await pool.query('UPDATE students SET password = $1 WHERE id = $2', [hashedPassword, studentId]);
+
+    res.json({ success: true, message: "Password changed successfully" });
+  } catch (err) {
+    console.error("Password Change Error:", err);
+    res.status(500).json({ error: "Failed to change password" });
+  }
+});
+
+// Teacher: Change own password
+app.post('/api/teacher/change-password', authenticateToken, teacherOnly, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const teacherId = req.user.id;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Current password and new password are required" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    }
+
+    // Get current password hash
+    const result = await pool.query('SELECT password FROM teachers WHERE id = $1', [teacherId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Teacher not found" });
+    }
+
+    // Verify current password
+    const isValid = await bcrypt.compare(currentPassword, result.rows[0].password);
+    if (!isValid) {
+      return res.status(401).json({ error: "Current password is incorrect" });
+    }
+
+    // Hash new password and update
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await pool.query('UPDATE teachers SET password = $1 WHERE id = $2', [hashedPassword, teacherId]);
+
+    res.json({ success: true, message: "Password changed successfully" });
+  } catch (err) {
+    console.error("Password Change Error:", err);
+    res.status(500).json({ error: "Failed to change password" });
+  }
+});
+
+// Admin: Reset student password
+app.post('/api/admin/reset-student-password', authenticateToken, adminOnly, async (req, res) => {
+  try {
+    const { studentId, newPassword } = req.body;
+
+    if (!studentId || !newPassword) {
+      return res.status(400).json({ error: "Student ID and new password are required" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    }
+
+    // Check if student exists
+    const checkResult = await pool.query('SELECT id, name, email FROM students WHERE id = $1', [studentId]);
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    const student = checkResult.rows[0];
+
+    // Hash new password and update
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await pool.query('UPDATE students SET password = $1 WHERE id = $2', [hashedPassword, studentId]);
+
+    res.json({ 
+      success: true, 
+      message: `Password reset successfully for ${student.name}`,
+      studentName: student.name,
+      studentEmail: student.email
+    });
+  } catch (err) {
+    console.error("Admin Password Reset Error:", err);
+    res.status(500).json({ error: "Failed to reset password" });
+  }
+});
+
+// Admin: Reset teacher password
+app.post('/api/admin/reset-teacher-password', authenticateToken, adminOnly, async (req, res) => {
+  try {
+    const { teacherId, newPassword } = req.body;
+
+    if (!teacherId || !newPassword) {
+      return res.status(400).json({ error: "Teacher ID and new password are required" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    }
+
+    // Check if teacher exists
+    const checkResult = await pool.query('SELECT id, name, email FROM teachers WHERE id = $1', [teacherId]);
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: "Teacher not found" });
+    }
+
+    const teacher = checkResult.rows[0];
+
+    // Hash new password and update
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await pool.query('UPDATE teachers SET password = $1 WHERE id = $2', [hashedPassword, teacherId]);
+
+    res.json({ 
+      success: true, 
+      message: `Password reset successfully for ${teacher.name}`,
+      teacherName: teacher.name,
+      teacherEmail: teacher.email
+    });
+  } catch (err) {
+    console.error("Admin Password Reset Error:", err);
+    res.status(500).json({ error: "Failed to reset password" });
+  }
+});
+
 // --- ROUTES: MODULE MANAGEMENT ---
 
 // 10. Teacher: Upload/Publish New Module
@@ -649,7 +799,7 @@ app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (re
     const result = await pool.query(query, values);
     const moduleId = result.rows[0].id;
     
-    // 🔔 NOTIFICATION: Send to all students in section
+    // NOTIFICATION: Send to all students in section
     try {
       const students = await notificationService.getStudentsInSection(section, 'MODULE_PUBLISHED');
       
@@ -678,7 +828,7 @@ app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (re
           notificationData
         );
         
-        console.log(`✓ Sent MODULE_PUBLISHED notifications to ${students.length} students`);
+        console.log(`[OK] Sent MODULE_PUBLISHED notifications to ${students.length} students`);
       }
     } catch (notifErr) {
       console.error('Notification error (non-blocking):', notifErr);
@@ -1034,7 +1184,7 @@ app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req,
     
     const test = result.rows[0];
     
-    // 🔔 NOTIFICATION: Send to all students in section
+    // NOTIFICATION: Send to all students in section
     try {
       const students = await notificationService.getStudentsInSection(section, 'TEST_ASSIGNED');
       
@@ -1064,7 +1214,7 @@ app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req,
           notificationData
         );
         
-        console.log(`✓ Sent TEST_ASSIGNED notifications to ${students.length} students`);
+        console.log(`[OK] Sent TEST_ASSIGNED notifications to ${students.length} students`);
       }
     } catch (notifErr) {
       console.error('Notification error (non-blocking):', notifErr);
@@ -1284,9 +1434,9 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
       if (studentAnswer && correctAnswer && 
           studentAnswer.toUpperCase().trim() === correctAnswer.toUpperCase().trim()) {
         correct_count++;
-        console.log(`  ✓ MATCH`);
+        console.log(`  [OK] MATCH`);
       } else {
-        console.log(`  ✗ NO MATCH`);
+        console.log(`  [X] NO MATCH`);
       }
     }
     
@@ -1314,7 +1464,7 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
     const submission = result.rows[0];
     console.log("Submission saved:", submission);
     
-    // 🔔 NOTIFICATION 1: Notify teacher about submission
+    // NOTIFICATION 1: Notify teacher about submission
     try {
       const testInfo = await pool.query(
         'SELECT teacher_id, teacher_name, section, title FROM mcq_tests WHERE id = $1',
@@ -1354,14 +1504,14 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
             teacherNotifData
           );
           
-          console.log(`✓ Sent TEST_SUBMITTED notification to teacher ${teacher.name}`);
+          console.log(`[OK] Sent TEST_SUBMITTED notification to teacher ${teacher.name}`);
         }
       }
     } catch (notifErr) {
       console.error('Teacher notification error (non-blocking):', notifErr);
     }
     
-    // 🔔 NOTIFICATION 2: Notify student about grade
+    // NOTIFICATION 2: Notify student about grade
     try {
       const studentInfo = await pool.query(
         'SELECT email FROM students WHERE id = $1',
@@ -1405,7 +1555,7 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
           gradeNotifData
         );
         
-        console.log(`✓ Sent GRADE_POSTED notification to student ${name}`);
+        console.log(`[OK] Sent GRADE_POSTED notification to student ${name}`);
       }
     } catch (notifErr) {
       console.error('Student grade notification error (non-blocking):', notifErr);
@@ -1719,7 +1869,7 @@ if (process.env.ENABLE_DEV_ENDPOINTS === 'true' || process.env.NODE_ENV !== 'pro
 // Export app for testing, only listen if run directly
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => console.log(`🚀 SERVER ACTIVE ON PORT ${PORT}`));
+  app.listen(PORT, () => console.log(`SERVER ACTIVE ON PORT ${PORT}`));
 }
 
 module.exports = app;

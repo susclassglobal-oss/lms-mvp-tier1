@@ -132,18 +132,18 @@ function NotificationBell() {
     switch (eventCode) {
       case 'MODULE_PUBLISHED':
       case 'MODULE_UPDATED':
-        return '📚';
+        return 'M';
       case 'TEST_ASSIGNED':
       case 'TEST_DEADLINE_24H':
-        return '📝';
+        return 'T';
       case 'GRADE_POSTED':
-        return '🎯';
+        return 'G';
       case 'TEST_SUBMITTED':
-        return '✅';
+        return 'S';
       case 'LOW_CLASS_PERFORMANCE':
-        return '⚠️';
+        return '!';
       default:
-        return '🔔';
+        return 'N';
     }
   };
 

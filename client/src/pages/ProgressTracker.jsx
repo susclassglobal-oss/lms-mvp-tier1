@@ -113,7 +113,7 @@ export default function ProgressTracker() {
               <div className="flex items-center justify-between p-6 bg-emerald-50 rounded-2xl">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center text-white font-black text-xl">
-                    ✓
+                    +
                   </div>
                   <div>
                     <p className="font-bold text-slate-800">Tests Completed</p>
@@ -127,7 +127,7 @@ export default function ProgressTracker() {
                 <div className="flex items-center justify-between p-6 bg-red-50 rounded-2xl">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center text-white font-black text-xl">
-                      ⚠
+                      !
                     </div>
                     <div>
                       <p className="font-bold text-slate-800">Overdue Tests</p>
@@ -146,7 +146,7 @@ export default function ProgressTracker() {
               <div className="flex items-center justify-between p-6 bg-blue-50 rounded-2xl">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-black text-xl">
-                    📊
+                    %
                   </div>
                   <div>
                     <p className="font-bold text-slate-800">Average Performance</p>

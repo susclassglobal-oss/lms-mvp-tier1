@@ -161,8 +161,8 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
       });
       
       if (res.ok) {
-        alert(editingModuleId ? "✓ Module Updated!" : "🚀 Module Published!");
-        setModuleQueue([]); 
+        alert(editingModuleId ? "Module Updated!" : "Module Published!");
+        setModuleQueue([]);
         setIsBuilding(false); 
         setEditingModuleId(null);
         setTargetSection(selectedSection || "");
@@ -198,7 +198,7 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
       });
       
       if (res.ok) {
-        alert("✓ Module Deleted!");
+        alert("Module Deleted!");
         fetchModules();
       } else {
         alert("Failed to delete module");
@@ -249,7 +249,7 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
               <div className="grid grid-cols-2 gap-6">
                 <div className="bg-emerald-50 p-6 rounded-2xl border-2 border-emerald-200">
                   <label className="text-xs font-black text-emerald-700 uppercase mb-3 block">
-                    📚 Target Section
+                    Target Section
                   </label>
                   <select 
                     className="w-full p-4 bg-white rounded-xl font-bold border-2 border-emerald-300 focus:border-emerald-500 outline-none"
@@ -262,13 +262,13 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
                     ))}
                   </select>
                   {!targetSection && (
-                    <p className="text-xs text-red-600 font-bold mt-2">⚠️ Required</p>
+                    <p className="text-xs text-red-600 font-bold mt-2">Required</p>
                   )}
                 </div>
 
                 <div className="bg-purple-50 p-6 rounded-2xl border-2 border-purple-200">
                   <label className="text-xs font-black text-purple-700 uppercase mb-3 block">
-                    📖 Target Subject
+                    Target Subject
                   </label>
                   <input
                     type="text"
@@ -278,7 +278,7 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
                     onChange={e => setTargetSubject(e.target.value)}
                   />
                   {!targetSubject && (
-                    <p className="text-xs text-red-600 font-bold mt-2">⚠️ Required</p>
+                    <p className="text-xs text-red-600 font-bold mt-2">Required</p>
                   )}
                 </div>
               </div>
@@ -286,11 +286,11 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
               <div className="grid grid-cols-2 gap-6">
                 <input type="text" placeholder="Step Topic" className="p-6 bg-slate-50 rounded-2xl font-bold" value={topicTitle} onChange={e => setTopicTitle(e.target.value)} />
                 <select className="p-6 bg-slate-50 rounded-2xl font-bold" value={contentType} onChange={e => setContentType(e.target.value)}>
-                  <option value="text">📝 Text Lesson</option>
-                  <option value="video">🎥 Video Upload</option>
-                  <option value="mcq">❓ Quiz (MCQ)</option>
-                  <option value="coding">💻 Coding Problem (Auto-Graded)</option>
-                  <option value="code">📋 Code Example (Display Only)</option>
+                  <option value="text">Text Lesson</option>
+                  <option value="video">Video Upload</option>
+                  <option value="mcq">Quiz (MCQ)</option>
+                  <option value="coding">Coding Problem (Auto-Graded)</option>
+                  <option value="code">Code Example (Display Only)</option>
                 </select>
               </div>
 
@@ -300,7 +300,7 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
                 <div className="space-y-4">
                   <div className="bg-blue-50 p-6 rounded-2xl border-2 border-blue-200">
                     <label className="text-xs font-black text-blue-700 uppercase mb-3 block">
-                      🎥 Upload Video to Cloudinary
+                      Upload Video to Cloudinary
                     </label>
                     <input 
                       type="file" 
@@ -310,12 +310,12 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
                     />
                     {videoFile && (
                       <p className="text-xs text-blue-600 font-bold mt-2">
-                        ✓ Selected: {videoFile.name}
+                        Selected: {videoFile.name}
                       </p>
                     )}
                     {uploadingVideo && (
                       <p className="text-xs text-blue-600 font-bold mt-2 animate-pulse">
-                        ⏳ Uploading video...
+                        Uploading video...
                       </p>
                     )}
                   </div>
@@ -365,7 +365,7 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
                   {/* Starter Code Templates */}
                   <div>
                     <label className="text-xs font-black text-slate-700 uppercase mb-3 block">
-                      🎯 Starter Code Templates (Students will see this)
+                      Starter Code Templates (Students will see this)
                     </label>
                     <div className="grid grid-cols-2 gap-4">
                       {Object.keys(codingProblem.starterCode).map(lang => (
@@ -388,7 +388,7 @@ function ModuleBuilder({ selectedSection, authHeaders, allocatedSections }) {
                   <div>
                     <div className="flex justify-between items-center mb-3">
                       <label className="text-xs font-black text-slate-700 uppercase">
-                        ✅ Test Cases (For Auto-Grading)
+                        Test Cases (For Auto-Grading)
                       </label>
                       <button
                         type="button"

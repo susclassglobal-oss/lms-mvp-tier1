@@ -45,6 +45,14 @@ function TeacherDashboard() {
   const [studentProgress, setStudentProgress] = useState(null);
   const [showProgressModal, setShowProgressModal] = useState(false);
 
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+
   const token = localStorage.getItem('token');
   const authHeaders = useCallback(() => ({
     'Authorization': `Bearer ${token}`,
@@ -390,6 +398,47 @@ const fetchTeacherProfile = useCallback(async () => {
     }
   };
 
+  // Handle Teacher Password Change
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordError('New password must be at least 6 characters');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/teacher/change-password', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+
+      const data = await res.json();
+      
+      if (!res.ok) {
+        setPasswordError(data.error || 'Failed to change password');
+      } else {
+        setPasswordSuccess('Password changed successfully');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }
+    } catch (err) {
+      setPasswordError('Network error. Please try again.');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   if (loading) {
     console.log("TeacherDashboard: Loading...");
     return <div className="h-screen flex items-center justify-center bg-slate-900 text-emerald-400 font-black">Establishing Secure Connection...</div>;
@@ -401,7 +450,7 @@ const fetchTeacherProfile = useCallback(async () => {
     console.log("TeacherDashboard: No teacher info, showing error screen");
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white">
-        <div className="text-6xl mb-4">⚠️</div>
+        <div className="text-6xl mb-4 font-black text-red-500">!</div>
         <h2 className="text-2xl font-black text-emerald-400 mb-4">Failed to Load Profile</h2>
         <p className="text-slate-400 mb-6">Unable to fetch teacher information</p>
         <button 
@@ -425,9 +474,10 @@ const fetchTeacherProfile = useCallback(async () => {
         <h2 className="text-3xl font-black text-emerald-400 italic mb-12">TEACHER<span className="text-white">DASH</span></h2>
         <nav className="flex-1 space-y-3">
           {[
-            { id: 'students', label: 'Class Roster', icon: '👥' }, 
-            { id: 'modules', label: 'Module Builder', icon: '🛠️' },
-            { id: 'tests', label: 'MCQ Tests', icon: '📝' }
+            { id: 'students', label: 'Class Roster', icon: 'CR' }, 
+            { id: 'modules', label: 'Module Builder', icon: 'MB' },
+            { id: 'tests', label: 'MCQ Tests', icon: 'MT' },
+            { id: 'settings', label: 'Settings', icon: 'ST' }
           ].map(item => (
             <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full text-left p-5 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center gap-4 ${activeTab === item.id ? 'bg-emerald-600' : 'hover:bg-white/5 text-slate-500'}`}>
               <span>{item.icon}</span> {item.label}
@@ -502,7 +552,7 @@ const fetchTeacherProfile = useCallback(async () => {
 
                 {testSubmissions.length === 0 ? (
                   <div className="text-center py-24 bg-white rounded-[3rem] border-2 border-dashed border-slate-200">
-                    <div className="text-6xl mb-4">📝</div>
+                    <div className="text-6xl mb-4 font-black text-slate-300">--</div>
                     <p className="text-slate-400 font-medium mb-2">No submissions yet</p>
                     <p className="text-xs text-slate-500">Students haven't taken this test</p>
                   </div>
@@ -767,7 +817,7 @@ const fetchTeacherProfile = useCallback(async () => {
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-xs text-emerald-600 font-black">✓ {q.correct}</span>
+                            <span className="text-xs text-emerald-600 font-black">Ans: {q.correct}</span>
                             <button
                               onClick={() => setQuestions(questions.filter((_, idx) => idx !== i))}
                               className="text-red-600 hover:text-red-700 font-bold"
@@ -793,7 +843,7 @@ const fetchTeacherProfile = useCallback(async () => {
             {/* Class Roster - Filtering Interface */}
             {allAllocations.length === 0 ? (
               <div className="text-center py-24 bg-white rounded-[3rem] border-2 border-dashed border-slate-200">
-                <div className="text-6xl mb-4">📚</div>
+                <div className="text-6xl mb-4 font-black text-slate-300">--</div>
                 <p className="text-slate-400 font-medium mb-2">No classes allocated yet</p>
                 <p className="text-xs text-slate-500">Contact admin to assign students to your classes</p>
               </div>
@@ -816,7 +866,7 @@ const fetchTeacherProfile = useCallback(async () => {
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      🏛️ Department & Section
+                      Department & Section
                     </button>
                     <button
                       onClick={() => {
@@ -831,7 +881,7 @@ const fetchTeacherProfile = useCallback(async () => {
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      📚 Subject
+                      Subject
                     </button>
                   </div>
                 </div>
@@ -1048,7 +1098,7 @@ const fetchTeacherProfile = useCallback(async () => {
                   {studentProgress.moduleProgress && (
                     <div className="mb-8 p-6 bg-purple-50 rounded-2xl border-2 border-purple-200">
                       <h3 className="font-black text-purple-800 mb-4 flex items-center gap-2">
-                        📚 Module Progress
+                        Module Progress
                       </h3>
                       <div className="grid grid-cols-3 gap-4">
                         <div className="bg-white p-4 rounded-xl text-center">
@@ -1074,7 +1124,7 @@ const fetchTeacherProfile = useCallback(async () => {
                   )}
                   
                   {/* Test Progress Section */}
-                  <h3 className="font-black mb-4 flex items-center gap-2">📝 Test Performance</h3>
+                  <h3 className="font-black mb-4 flex items-center gap-2">Test Performance</h3>
                   <div className="grid grid-cols-4 gap-4 mb-8">
                     <div className="bg-emerald-50 p-6 rounded-2xl text-center">
                       <p className="text-3xl font-black text-emerald-600">{studentProgress.student?.tests_completed || 0}</p>
@@ -1128,6 +1178,75 @@ const fetchTeacherProfile = useCallback(async () => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* SETTINGS TAB */}
+        {activeTab === 'settings' && (
+          <div className="max-w-2xl">
+            <div className="bg-white border border-slate-100 p-10 rounded-[3rem] shadow-sm">
+              <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-8">Security Settings</h2>
+              
+              <form onSubmit={handlePasswordChange} className="space-y-6">
+                <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider">Change Password</h3>
+                
+                {passwordError && (
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm font-medium">
+                    {passwordError}
+                  </div>
+                )}
+                {passwordSuccess && (
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-600 text-sm font-medium">
+                    {passwordSuccess}
+                  </div>
+                )}
+                
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Current Password</label>
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all text-sm"
+                    placeholder="Enter current password"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">New Password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all text-sm"
+                    placeholder="Enter new password (min 6 characters)"
+                    required
+                    minLength={6}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">Confirm New Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all text-sm"
+                    placeholder="Confirm new password"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={changingPassword}
+                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl transition-colors uppercase tracking-wider text-xs"
+                >
+                  {changingPassword ? 'Changing Password...' : 'Update Password'}
+                </button>
+              </form>
+            </div>
           </div>
         )}
       </main>

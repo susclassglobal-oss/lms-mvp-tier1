@@ -210,13 +210,13 @@ afterAll(() => {
   if (db) db.close();
 });
 
-describe('🔔 In-App Notification System Tests', () => {
+describe('In-App Notification System Tests', () => {
 
   // ============================================================
   // API ENDPOINT TESTS
   // ============================================================
 
-  describe('📬 GET /api/notifications/inbox', () => {
+  describe('GET /api/notifications/inbox', () => {
     
     it('should reject request without token', async () => {
       const res = await request(app)
@@ -244,7 +244,7 @@ describe('🔔 In-App Notification System Tests', () => {
     });
   });
 
-  describe('📊 GET /api/notifications/unread-count', () => {
+  describe('GET /api/notifications/unread-count', () => {
     
     it('should return unread count object', async () => {
       const res = await request(app)
@@ -264,7 +264,7 @@ describe('🔔 In-App Notification System Tests', () => {
     });
   });
 
-  describe('✓ PATCH /api/notifications/:id/read', () => {
+  describe('PATCH /api/notifications/:id/read', () => {
     let testNotificationId;
 
     beforeAll(() => {
@@ -294,7 +294,7 @@ describe('🔔 In-App Notification System Tests', () => {
     });
   });
 
-  describe('✓✓ PATCH /api/notifications/read-all', () => {
+  describe('PATCH /api/notifications/read-all', () => {
     
     beforeAll(() => {
       // Create multiple unread notifications
@@ -324,7 +324,7 @@ describe('🔔 In-App Notification System Tests', () => {
 // IN-APP NOTIFICATION TEMPLATES UNIT TESTS
 // ============================================================
 
-describe('🔔 In-App Notification Templates', () => {
+describe('In-App Notification Templates', () => {
   
   // Test the template generation logic (unit test style)
   const inAppTemplates = {
@@ -511,7 +511,7 @@ describe('🔐 RBAC Tests for Notification Endpoints', () => {
 // NOTIFICATION BELL COMPONENT LOGIC TESTS
 // ============================================================
 
-describe('🔔 NotificationBell Component Logic', () => {
+describe('NotificationBell Component Logic', () => {
   
   // Test the relative time formatting logic used in the component
   const formatRelativeTime = (dateString) => {
@@ -549,30 +549,30 @@ describe('🔔 NotificationBell Component Logic', () => {
   // Test event code to icon mapping logic
   const getEventIcon = (eventCode) => {
     const icons = {
-      MODULE_PUBLISHED: '📚',
-      TEST_ASSIGNED: '📝',
-      TEST_DEADLINE_24H: '⏰',
-      GRADE_POSTED: '🏆',
-      TEST_SUBMITTED: '✅',
-      LOW_CLASS_PERFORMANCE: '📊',
-      MODULE_UPDATED: '🔄'
+      MODULE_PUBLISHED: 'M',
+      TEST_ASSIGNED: 'T',
+      TEST_DEADLINE_24H: '!',
+      GRADE_POSTED: 'G',
+      TEST_SUBMITTED: 'S',
+      LOW_CLASS_PERFORMANCE: 'L',
+      MODULE_UPDATED: 'U'
     };
-    return icons[eventCode] || '🔔';
+    return icons[eventCode] || 'N';
   };
 
   it('should return correct icon for MODULE_PUBLISHED', () => {
-    expect(getEventIcon('MODULE_PUBLISHED')).toBe('📚');
+    expect(getEventIcon('MODULE_PUBLISHED')).toBe('M');
   });
 
   it('should return correct icon for TEST_ASSIGNED', () => {
-    expect(getEventIcon('TEST_ASSIGNED')).toBe('📝');
+    expect(getEventIcon('TEST_ASSIGNED')).toBe('T');
   });
 
   it('should return correct icon for GRADE_POSTED', () => {
-    expect(getEventIcon('GRADE_POSTED')).toBe('🏆');
+    expect(getEventIcon('GRADE_POSTED')).toBe('G');
   });
 
   it('should return default icon for unknown event', () => {
-    expect(getEventIcon('UNKNOWN_EVENT')).toBe('🔔');
+    expect(getEventIcon('UNKNOWN_EVENT')).toBe('N');
   });
 });

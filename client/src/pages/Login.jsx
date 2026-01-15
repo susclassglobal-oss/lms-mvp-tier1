@@ -122,7 +122,7 @@ function Login() {
           </h2>
           {error && (
             <div className="mt-6 p-3 bg-red-50 text-red-500 text-[10px] font-bold rounded-xl uppercase border border-red-100 animate-shake">
-              <span>⚠️</span> {error}
+              {error}
             </div>
           )}
         </div>

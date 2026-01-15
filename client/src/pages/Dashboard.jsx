@@ -71,11 +71,11 @@ function Dashboard() {
   };
 
   const sidebarItems = [
-    { title: 'Dashboard', route: '/dashboard', icon: '🏠' },
-    { title: 'Learning Modules', route: '/courses', icon: '📚' },
-    { title: 'Test Knowledge', route: '/test', icon: '📝' },
-    { title: 'Progress Tracker', route: '/progress', icon: '📊' },
-    { title: 'My Profile', route: '/profile', icon: '👤' },
+    { title: 'Dashboard', route: '/dashboard', icon: 'D' },
+    { title: 'Learning Modules', route: '/courses', icon: 'M' },
+    { title: 'Test Knowledge', route: '/test', icon: 'T' },
+    { title: 'Progress Tracker', route: '/progress', icon: 'P' },
+    { title: 'My Profile', route: '/profile', icon: 'U' },
   ];
 
   if (loading) {
@@ -195,7 +195,7 @@ function Dashboard() {
               
               {upcomingTests.length === 0 ? (
                 <div className="p-8 text-center text-slate-400">
-                  <span className="text-4xl">🎉</span>
+                  <span className="text-4xl font-black text-emerald-400">OK</span>
                   <p className="mt-2">No pending tests! You're all caught up.</p>
                 </div>
               ) : (
@@ -246,7 +246,7 @@ function Dashboard() {
               
               {recentModules.length === 0 ? (
                 <div className="p-8 text-center text-slate-400">
-                  <span className="text-4xl">📚</span>
+                  <span className="text-4xl font-black text-slate-300">--</span>
                   <p className="mt-2">No modules published yet</p>
                 </div>
               ) : (
@@ -283,7 +283,7 @@ function Dashboard() {
               
               {completedTests.length === 0 ? (
                 <div className="p-6 text-center text-slate-400">
-                  <span className="text-3xl">📊</span>
+                  <span className="text-3xl font-black text-slate-300">--</span>
                   <p className="mt-2 text-sm">No completed tests yet</p>
                 </div>
               ) : (
@@ -322,21 +322,21 @@ function Dashboard() {
                   onClick={() => navigate('/courses')}
                   className="w-full px-4 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-left transition-colors flex items-center gap-3"
                 >
-                  <span>📚</span>
+                  <span className="w-6 h-6 bg-white/20 rounded flex items-center justify-center text-xs font-bold">M</span>
                   <span className="text-sm font-medium">Continue Learning</span>
                 </button>
                 <button 
                   onClick={() => navigate('/test')}
                   className="w-full px-4 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-left transition-colors flex items-center gap-3"
                 >
-                  <span>📝</span>
+                  <span className="w-6 h-6 bg-white/20 rounded flex items-center justify-center text-xs font-bold">T</span>
                   <span className="text-sm font-medium">Take a Test</span>
                 </button>
                 <button 
                   onClick={() => navigate('/profile')}
                   className="w-full px-4 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-left transition-colors flex items-center gap-3"
                 >
-                  <span>👤</span>
+                  <span className="w-6 h-6 bg-white/20 rounded flex items-center justify-center text-xs font-bold">U</span>
                   <span className="text-sm font-medium">Update Profile</span>
                 </button>
               </div>
