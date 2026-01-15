@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ModuleBuilder from './ModuleBuilder';
+import NotificationBell from '../components/NotificationBell';
 
 function TeacherDashboard() {
   const navigate = useNavigate();
@@ -455,14 +456,17 @@ const fetchTeacherProfile = useCallback(async () => {
               )}
             </div>
           </div>
-          <div className="flex gap-3 bg-white p-3 rounded-full shadow-xl">
-            {teacherInfo?.allocated_sections && Array.isArray(teacherInfo.allocated_sections) && teacherInfo.allocated_sections.length > 0 ? (
-              teacherInfo.allocated_sections.map(sec => (
-                <button key={sec} onClick={() => setSelectedSection(sec)} className={`px-8 py-3 rounded-full text-[10px] font-black uppercase transition-all ${selectedSection === sec ? 'bg-slate-900 text-white' : 'text-slate-400'}`}>{sec}</button>
-              ))
-            ) : (
-              <p className="text-xs text-slate-400 px-4">No sections allocated</p>
-            )}
+          <div className="flex items-center gap-4">
+            <NotificationBell />
+            <div className="flex gap-3 bg-white p-3 rounded-full shadow-xl">
+              {teacherInfo?.allocated_sections && Array.isArray(teacherInfo.allocated_sections) && teacherInfo.allocated_sections.length > 0 ? (
+                teacherInfo.allocated_sections.map(sec => (
+                  <button key={sec} onClick={() => setSelectedSection(sec)} className={`px-8 py-3 rounded-full text-[10px] font-black uppercase transition-all ${selectedSection === sec ? 'bg-slate-900 text-white' : 'text-slate-400'}`}>{sec}</button>
+                ))
+              ) : (
+                <p className="text-xs text-slate-400 px-4">No sections allocated</p>
+              )}
+            </div>
           </div>
         </header>
 

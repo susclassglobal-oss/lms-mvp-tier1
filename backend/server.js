@@ -654,19 +654,30 @@ app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (re
       const students = await notificationService.getStudentsInSection(section, 'MODULE_PUBLISHED');
       
       if (students.length > 0) {
+        const notificationData = (student) => ({
+          student_name: student.name,
+          section: section,
+          topic_title: topic,
+          subject: subject,
+          teacher_name: teacherName,
+          step_count: steps.length
+        });
+        
+        // Send emails
         await notificationService.sendBatchEmails(
           'MODULE_PUBLISHED',
           students,
-          (student) => ({
-            student_name: student.name,
-            section: section,
-            topic_title: topic,
-            subject: subject,
-            teacher_name: teacherName,
-            step_count: steps.length
-          }),
+          notificationData,
           { module_id: moduleId, teacher_id: teacherId }
         );
+        
+        // Create in-app notifications
+        await notificationService.createBatchInAppNotifications(
+          'MODULE_PUBLISHED',
+          students,
+          notificationData
+        );
+        
         console.log(`✓ Sent MODULE_PUBLISHED notifications to ${students.length} students`);
       }
     } catch (notifErr) {
@@ -1028,20 +1039,31 @@ app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req,
       const students = await notificationService.getStudentsInSection(section, 'TEST_ASSIGNED');
       
       if (students.length > 0) {
+        const notificationData = (student) => ({
+          student_name: student.name,
+          section: section,
+          test_title: title,
+          description: description,
+          total_questions: questions.length,
+          start_date: start_date,
+          deadline: deadline
+        });
+        
+        // Send emails
         await notificationService.sendBatchEmails(
           'TEST_ASSIGNED',
           students,
-          (student) => ({
-            student_name: student.name,
-            section: section,
-            test_title: title,
-            description: description,
-            total_questions: questions.length,
-            start_date: start_date,
-            deadline: deadline
-          }),
+          notificationData,
           { test_id: test.id, teacher_id: teacher_id }
         );
+        
+        // Create in-app notifications
+        await notificationService.createBatchInAppNotifications(
+          'TEST_ASSIGNED',
+          students,
+          notificationData
+        );
+        
         console.log(`✓ Sent TEST_ASSIGNED notifications to ${students.length} students`);
       }
     } catch (notifErr) {
@@ -1304,23 +1326,34 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
         const teacher = await notificationService.getTeacherById(testData.teacher_id);
         
         if (teacher) {
+          const teacherNotifData = {
+            teacher_name: teacher.name,
+            student_name: name,
+            student_reg_no: reg_no,
+            test_title: testData.title,
+            score: score,
+            total_questions: total_questions,
+            percentage: percentage,
+            status: status,
+            submitted_at: new Date().toISOString(),
+            test_id: test_id
+          };
+          
+          // Send email
           await notificationService.sendEmail(
             'TEST_SUBMITTED',
             teacher,
-            {
-              teacher_name: teacher.name,
-              student_name: name,
-              student_reg_no: reg_no,
-              test_title: testData.title,
-              score: score,
-              total_questions: total_questions,
-              percentage: percentage,
-              status: status,
-              submitted_at: new Date().toISOString(),
-              test_id: test_id
-            },
+            teacherNotifData,
             { test_id, student_id, submission_id: submission.id }
           );
+          
+          // Create in-app notification
+          await notificationService.createInAppNotification(
+            'TEST_SUBMITTED',
+            teacher,
+            teacherNotifData
+          );
+          
           console.log(`✓ Sent TEST_SUBMITTED notification to teacher ${teacher.name}`);
         }
       }
@@ -1335,12 +1368,12 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
         [student_id]
       );
       
-      const testInfo = await pool.query(
+      const testInfoGrade = await pool.query(
         'SELECT title FROM mcq_tests WHERE id = $1',
         [test_id]
       );
       
-      if (studentInfo.rows.length > 0 && testInfo.rows.length > 0) {
+      if (studentInfo.rows.length > 0 && testInfoGrade.rows.length > 0) {
         const student = {
           id: student_id,
           type: 'student',
@@ -1348,19 +1381,30 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
           name: name
         };
         
+        const gradeNotifData = {
+          student_name: name,
+          test_title: testInfoGrade.rows[0].title,
+          score: score,
+          total_questions: total_questions,
+          percentage: percentage,
+          status: status
+        };
+        
+        // Send email
         await notificationService.sendEmail(
           'GRADE_POSTED',
           student,
-          {
-            student_name: name,
-            test_title: testInfo.rows[0].title,
-            score: score,
-            total_questions: total_questions,
-            percentage: percentage,
-            status: status
-          },
+          gradeNotifData,
           { test_id, submission_id: submission.id }
         );
+        
+        // Create in-app notification
+        await notificationService.createInAppNotification(
+          'GRADE_POSTED',
+          student,
+          gradeNotifData
+        );
+        
         console.log(`✓ Sent GRADE_POSTED notification to student ${name}`);
       }
     } catch (notifErr) {
@@ -1555,6 +1599,98 @@ app.get('/api/notifications/stats', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Get Notification Stats Error:', err);
     res.status(500).json({ error: 'Failed to load notification statistics' });
+  }
+});
+
+// ============================================================
+// IN-APP NOTIFICATIONS (Bell Icon)
+// ============================================================
+
+// Get user's in-app notifications
+app.get('/api/notifications/inbox', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userType = req.user.role;
+    const limit = parseInt(req.query.limit) || 20;
+    
+    const result = await pool.query(
+      `SELECT id, event_code, title, message, link, is_read, created_at
+       FROM in_app_notifications 
+       WHERE user_id = $1 AND user_type = $2
+       ORDER BY created_at DESC
+       LIMIT $3`,
+      [userId, userType, limit]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get In-App Notifications Error:', err);
+    res.status(500).json({ error: 'Failed to load notifications' });
+  }
+});
+
+// Get unread notification count
+app.get('/api/notifications/unread-count', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userType = req.user.role;
+    
+    const result = await pool.query(
+      `SELECT COUNT(*) as count FROM in_app_notifications 
+       WHERE user_id = $1 AND user_type = $2 AND is_read = false`,
+      [userId, userType]
+    );
+    
+    res.json({ count: parseInt(result.rows[0].count) });
+  } catch (err) {
+    console.error('Get Unread Count Error:', err);
+    res.status(500).json({ error: 'Failed to get unread count' });
+  }
+});
+
+// Mark notification as read
+app.patch('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+  try {
+    const notificationId = req.params.id;
+    const userId = req.user.id;
+    const userType = req.user.role;
+    
+    const result = await pool.query(
+      `UPDATE in_app_notifications 
+       SET is_read = true 
+       WHERE id = $1 AND user_id = $2 AND user_type = $3
+       RETURNING id`,
+      [notificationId, userId, userType]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Notification not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Mark Read Error:', err);
+    res.status(500).json({ error: 'Failed to mark notification as read' });
+  }
+});
+
+// Mark all notifications as read
+app.patch('/api/notifications/read-all', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userType = req.user.role;
+    
+    await pool.query(
+      `UPDATE in_app_notifications 
+       SET is_read = true 
+       WHERE user_id = $1 AND user_type = $2 AND is_read = false`,
+      [userId, userType]
+    );
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Mark All Read Error:', err);
+    res.status(500).json({ error: 'Failed to mark all as read' });
   }
 });
 

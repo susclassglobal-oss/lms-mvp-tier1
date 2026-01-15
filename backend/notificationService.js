@@ -444,6 +444,104 @@ const getTeacherById = async (teacherId) => {
 };
 
 // ============================================================
+// IN-APP NOTIFICATION FUNCTIONS
+// ============================================================
+
+// In-app notification titles and messages by event code
+const inAppTemplates = {
+  MODULE_PUBLISHED: (data) => ({
+    title: 'New Module Available',
+    message: `"${data.topic_title}" has been published by ${data.teacher_name}`,
+    link: '/courses'
+  }),
+  TEST_ASSIGNED: (data) => ({
+    title: 'New Test Assigned',
+    message: `"${data.test_title}" - Due: ${new Date(data.deadline).toLocaleDateString()}`,
+    link: '/test'
+  }),
+  TEST_DEADLINE_24H: (data) => ({
+    title: 'Test Due Tomorrow',
+    message: `"${data.test_title}" deadline is in 24 hours!`,
+    link: '/test'
+  }),
+  GRADE_POSTED: (data) => ({
+    title: 'Grade Posted',
+    message: `You scored ${data.percentage}% on "${data.test_title}"`,
+    link: '/progress'
+  }),
+  TEST_SUBMITTED: (data) => ({
+    title: 'New Test Submission',
+    message: `${data.student_name} submitted "${data.test_title}" - ${data.percentage}%`,
+    link: '/teacher-dashboard'
+  }),
+  LOW_CLASS_PERFORMANCE: (data) => ({
+    title: 'Performance Alert',
+    message: `Class average on "${data.test_title}" is ${data.average_percentage}%`,
+    link: '/teacher-dashboard'
+  }),
+  MODULE_UPDATED: (data) => ({
+    title: 'Module Updated',
+    message: `"${data.topic_title}" has been updated`,
+    link: '/courses'
+  })
+};
+
+/**
+ * Create in-app notification (bell notification)
+ * @param {string} eventCode - Notification event code
+ * @param {Object} recipient - {id, type}
+ * @param {Object} data - Template data
+ * @returns {Promise<Object>} - Created notification
+ */
+const createInAppNotification = async (eventCode, recipient, data) => {
+  try {
+    // Skip ACCOUNT_CREATED - only email
+    if (eventCode === 'ACCOUNT_CREATED') {
+      return { success: false, reason: 'account_created_email_only' };
+    }
+    
+    const template = inAppTemplates[eventCode];
+    if (!template) {
+      console.log(`No in-app template for ${eventCode}, skipping`);
+      return { success: false, reason: 'no_template' };
+    }
+
+    const { title, message, link } = template(data);
+    
+    const result = await dbPool.query(
+      `INSERT INTO in_app_notifications (user_id, user_type, event_code, title, message, link, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, title, message, link, created_at`,
+      [recipient.id, recipient.type, eventCode, title, message, link, JSON.stringify(data)]
+    );
+
+    return { success: true, notification: result.rows[0] };
+  } catch (error) {
+    console.error(`Failed to create in-app notification:`, error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Create in-app notifications for multiple recipients
+ * @param {string} eventCode - Notification event code
+ * @param {Array} recipients - Array of {id, type}
+ * @param {Object|Function} dataFactory - Data or function to generate data
+ * @returns {Promise<Array>} - Array of results
+ */
+const createBatchInAppNotifications = async (eventCode, recipients, dataFactory) => {
+  const results = [];
+  
+  for (const recipient of recipients) {
+    const data = typeof dataFactory === 'function' ? dataFactory(recipient) : dataFactory;
+    const result = await createInAppNotification(eventCode, recipient, data);
+    results.push({ recipient, result });
+  }
+  
+  return results;
+};
+
+// ============================================================
 // EXPORTS
 // ============================================================
 
@@ -453,5 +551,7 @@ module.exports = {
   sendBatchEmails,
   getStudentsInSection,
   getTeacherById,
-  emailTemplates
+  emailTemplates,
+  createInAppNotification,
+  createBatchInAppNotifications
 };

@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import NotificationBell from '../components/NotificationBell';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export default function TestKnowledge() {
   const navigate = useNavigate();
@@ -20,7 +23,7 @@ export default function TestKnowledge() {
   
   const fetchTests = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/student/tests', {
+      const res = await fetch(`${API_URL}/api/student/tests`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -34,7 +37,7 @@ export default function TestKnowledge() {
   
   const startTest = async (testId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/student/test/${testId}`, {
+      const res = await fetch(`${API_URL}/api/student/test/${testId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -58,7 +61,7 @@ export default function TestKnowledge() {
     const timeTaken = Math.floor((Date.now() - startTime) / 1000);
     
     try {
-      const res = await fetch('http://localhost:5000/api/student/test/submit', {
+      const res = await fetch(`${API_URL}/api/student/test/submit`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -208,9 +211,12 @@ export default function TestKnowledge() {
           ← Back to Dashboard
         </button>
 
-        <header className="mb-12">
-          <h1 className="text-3xl font-bold text-slate-900">Test Knowledge</h1>
-          <p className="text-slate-500 mt-2">Complete your assigned tests before the deadline.</p>
+        <header className="mb-12 flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">Test Knowledge</h1>
+            <p className="text-slate-500 mt-2">Complete your assigned tests before the deadline.</p>
+          </div>
+          <NotificationBell />
         </header>
 
         {/* Pending Tests */}

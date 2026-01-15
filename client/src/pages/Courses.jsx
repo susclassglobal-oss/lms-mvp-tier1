@@ -1,23 +1,35 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import NotificationBell from '../components/NotificationBell';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 function Courses() {
   const navigate = useNavigate();
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState(null);
   const token = localStorage.getItem('token');
 
   const fetchMyModules = useCallback(async () => {
   try {
-    const res = await fetch('http://localhost:5000/api/student/my-modules', {
-      headers: { 
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    const data = await res.json();
-    console.log("Frontend Data Check:", data); // Press F12 in browser to see this!
-    setModules(Array.isArray(data) ? data : []);
+    const headers = { 
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      'Content-Type': 'application/json'
+    };
+    
+    const [modulesRes, profileRes] = await Promise.all([
+      fetch(`${API_URL}/api/student/my-modules`, { headers }),
+      fetch(`${API_URL}/api/student/profile`, { headers })
+    ]);
+    
+    if (modulesRes.ok) {
+      const data = await modulesRes.json();
+      setModules(Array.isArray(data) ? data : []);
+    }
+    if (profileRes.ok) {
+      setProfile(await profileRes.json());
+    }
   } catch (err) {
     console.error("Fetch error:", err);
   } finally {
@@ -45,9 +57,12 @@ function Courses() {
           <span className="group-hover:-translate-x-1 transition-transform">←</span> Back to Dashboard
         </button>
 
-        <header className="mb-12">
-          <h1 className="text-4xl font-black tracking-tight text-slate-900">Department Hub</h1>
-          <p className="text-slate-500 mt-2 text-lg">Your personalized workspace for ECE A.</p>
+        <header className="mb-12 flex justify-between items-start">
+          <div>
+            <h1 className="text-4xl font-black tracking-tight text-slate-900">Learning Hub</h1>
+            <p className="text-slate-500 mt-2 text-lg">Your personalized workspace for {profile?.class_dept} {profile?.section}.</p>
+          </div>
+          <NotificationBell />
         </header>
 
         {/* Top Hero Section: Side-by-Side Tools */}
@@ -95,7 +110,7 @@ function Courses() {
         {/* Bottom Section: All Assigned Modules List */}
         <section>
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Syllabus for ECE A</h3>
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">All Modules for {profile?.class_dept} {profile?.section}</h3>
             <div className="h-px flex-1 bg-slate-100 mx-6"></div>
             <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
               {modules.length} Available
@@ -134,7 +149,7 @@ function Courses() {
               ))
             ) : (
               <div className="col-span-full py-24 rounded-[3rem] border-2 border-dashed border-slate-200 text-center">
-                <p className="text-slate-400 font-medium">No learning modules have been published for ECE A yet.</p>
+                <p className="text-slate-400 font-medium">No learning modules have been published for {profile?.class_dept} {profile?.section} yet.</p>
               </div>
             )}
           </div>

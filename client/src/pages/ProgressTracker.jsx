@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import NotificationBell from '../components/NotificationBell';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export default function ProgressTracker() {
   const navigate = useNavigate();
@@ -10,7 +13,7 @@ export default function ProgressTracker() {
     const fetchProgress = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:5000/api/student/progress', {
+        const res = await fetch(`${API_URL}/api/student/progress`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
@@ -46,9 +49,12 @@ export default function ProgressTracker() {
           ← Back to Dashboard
         </button>
 
-        <header className="mb-12">
-          <h1 className="text-3xl font-bold text-slate-900">Your Growth Journey</h1>
-          <p className="text-slate-500 mt-2">Track your test performance and progress.</p>
+        <header className="mb-12 flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">Your Growth Journey</h1>
+            <p className="text-slate-500 mt-2">Track your test performance and progress.</p>
+          </div>
+          <NotificationBell />
         </header>
 
         {/* STATS GRID */}
