@@ -40,8 +40,10 @@ COPY backend/package*.json ./
 # Install backend dependencies
 RUN npm ci --only=production
 
-# Copy backend source
-COPY backend/server.js .
+# Copy backend source files
+COPY backend/server.js ./
+COPY backend/notificationService.js ./
+COPY backend/notification-system.sql ./
 
 # Create public directory for serving frontend
 RUN mkdir -p /app/backend/public

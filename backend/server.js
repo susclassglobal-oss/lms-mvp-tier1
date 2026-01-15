@@ -76,6 +76,24 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
+const teacherOnly = (req, res, next) => {
+  if (req.user.role !== 'teacher') return res.status(403).json({ error: "Forbidden: Teacher Only" });
+  next();
+};
+
+const studentOnly = (req, res, next) => {
+  if (req.user.role !== 'student') return res.status(403).json({ error: "Forbidden: Student Only" });
+  next();
+};
+
+// Combined role check middleware
+const allowRoles = (...roles) => (req, res, next) => {
+  if (!roles.includes(req.user.role)) {
+    return res.status(403).json({ error: `Forbidden: ${roles.join(' or ')} Only` });
+  }
+  next();
+};
+
 // --- ROUTES: AUTHENTICATION ---
 
 
@@ -476,7 +494,7 @@ app.get('/api/admin/student/:id/teachers', authenticateToken, adminOnly, async (
 
 
 // 8. Fetch Teacher Profile (for Dashboard)
-app.get('/api/teacher/me', authenticateToken, async (req, res) => {
+app.get('/api/teacher/me', authenticateToken, teacherOnly, async (req, res) => {
   try {
     // req.user.id comes from the decoded JWT token
     const result = await pool.query(
@@ -492,7 +510,7 @@ app.get('/api/teacher/me', authenticateToken, async (req, res) => {
 });
 
 // 8b. Teacher: Get My Allocated Students
-app.get('/api/teacher/my-students', authenticateToken, async (req, res) => {
+app.get('/api/teacher/my-students', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const teacher_id = req.user.id;
     
@@ -508,7 +526,7 @@ app.get('/api/teacher/my-students', authenticateToken, async (req, res) => {
 });
 
 // 9. Fetch Students for a specific section
-app.get('/api/teacher/students/:section', authenticateToken, async (req, res) => {
+app.get('/api/teacher/students/:section', authenticateToken, teacherOnly, async (req, res) => {
   const fullSectionString = req.params.section; // e.g., "ECE A" or "ece a"
 
   try {
@@ -563,7 +581,7 @@ app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => 
 
 // FETCH INDIVIDUAL STUDENT PROFILE
 // FETCH STUDENT PROFILE WITH PHOTO
-app.get('/api/student/profile', authenticateToken, async (req, res) => {
+app.get('/api/student/profile', authenticateToken, studentOnly, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT id, name, email, reg_no, class_dept, section, media FROM students WHERE id = $1',
@@ -607,7 +625,7 @@ app.get('/api/student/profile', authenticateToken, async (req, res) => {
 // --- ROUTES: MODULE MANAGEMENT ---
 
 // 10. Teacher: Upload/Publish New Module
-app.post('/api/teacher/upload-module', authenticateToken, async (req, res) => {
+app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const { section, subject, topic, steps } = req.body;
     const teacherId = req.user.id;
@@ -663,7 +681,7 @@ app.post('/api/teacher/upload-module', authenticateToken, async (req, res) => {
 });
 
 // 11. Teacher: Fetch Modules for a Section
-app.get('/api/teacher/modules/:section', authenticateToken, async (req, res) => {
+app.get('/api/teacher/modules/:section', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const section = req.params.section;
     
@@ -683,7 +701,7 @@ app.get('/api/teacher/modules/:section', authenticateToken, async (req, res) => 
 });
 
 // 11b. Teacher: Get Single Module (for editing)
-app.get('/api/teacher/module/:moduleId', authenticateToken, async (req, res) => {
+app.get('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
     const teacherId = req.user.id;
@@ -705,7 +723,7 @@ app.get('/api/teacher/module/:moduleId', authenticateToken, async (req, res) => 
 });
 
 // 11c. Teacher: Update/Edit Module
-app.put('/api/teacher/module/:moduleId', authenticateToken, async (req, res) => {
+app.put('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
     const { topic, subject, steps } = req.body;
@@ -738,7 +756,7 @@ app.put('/api/teacher/module/:moduleId', authenticateToken, async (req, res) => 
 });
 
 // 11c. Teacher: Delete Module
-app.delete('/api/teacher/module/:moduleId', authenticateToken, async (req, res) => {
+app.delete('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
     const teacherId = req.user.id;
@@ -763,7 +781,7 @@ app.delete('/api/teacher/module/:moduleId', authenticateToken, async (req, res) 
 });
 
 // 12. Student: Fetch My Modules (Based on Student's Section)
-app.get('/api/student/my-modules', authenticateToken, async (req, res) => {
+app.get('/api/student/my-modules', authenticateToken, studentOnly, async (req, res) => {
   try {
     const studentId = req.user.id;
     
@@ -797,7 +815,7 @@ app.get('/api/student/my-modules', authenticateToken, async (req, res) => {
 });
 
 // 13. Student: Fetch Specific Module Content (All Steps)
-app.get('/api/student/module/:moduleId', authenticateToken, async (req, res) => {
+app.get('/api/student/module/:moduleId', authenticateToken, studentOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
     const studentId = req.user.id;
@@ -830,7 +848,7 @@ app.get('/api/student/module/:moduleId', authenticateToken, async (req, res) => 
 });
 
 // 13b. Student: Mark Module as Complete
-app.post('/api/student/module/:moduleId/complete', authenticateToken, async (req, res) => {
+app.post('/api/student/module/:moduleId/complete', authenticateToken, studentOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
     const studentId = req.user.id;
@@ -845,7 +863,7 @@ app.post('/api/student/module/:moduleId/complete', authenticateToken, async (req
 });
 
 // 13c. Student: Get My Module Progress
-app.get('/api/student/module-progress', authenticateToken, async (req, res) => {
+app.get('/api/student/module-progress', authenticateToken, studentOnly, async (req, res) => {
   try {
     const studentId = req.user.id;
     
@@ -871,7 +889,7 @@ app.get('/api/student/module-progress', authenticateToken, async (req, res) => {
 });
 
 // 13d. Teacher: Get Module Statistics
-app.get('/api/teacher/module/:moduleId/statistics', authenticateToken, async (req, res) => {
+app.get('/api/teacher/module/:moduleId/statistics', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
     
@@ -891,7 +909,7 @@ app.get('/api/teacher/module/:moduleId/statistics', authenticateToken, async (re
   }
 });
 
-app.post('/api/student/submit-code', authenticateToken, async (req, res) => {
+app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req, res) => {
     try {
         const { moduleId, code, language, testCases } = req.body;
         const studentId = req.user.id;
@@ -955,7 +973,7 @@ app.post('/api/student/submit-code', authenticateToken, async (req, res) => {
 });
 
 // 13e. Teacher: Get Student's Module Progress
-app.get('/api/teacher/student/:studentId/module-progress', authenticateToken, async (req, res) => {
+app.get('/api/teacher/student/:studentId/module-progress', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const studentId = req.params.studentId;
     
@@ -983,7 +1001,7 @@ app.get('/api/teacher/student/:studentId/module-progress', authenticateToken, as
 // --- ROUTES: MCQ TEST SYSTEM ---
 
 // 14. Teacher: Create MCQ Test
-app.post('/api/teacher/test/create', authenticateToken, async (req, res) => {
+app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const { section, title, description, questions, start_date, deadline } = req.body;
     const teacher_id = req.user.id;
@@ -1038,7 +1056,7 @@ app.post('/api/teacher/test/create', authenticateToken, async (req, res) => {
 });
 
 // 15. Teacher: Get All Tests for Section
-app.get('/api/teacher/tests/:section', authenticateToken, async (req, res) => {
+app.get('/api/teacher/tests/:section', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const section = req.params.section;
     
@@ -1057,7 +1075,7 @@ app.get('/api/teacher/tests/:section', authenticateToken, async (req, res) => {
 });
 
 // 16. Teacher: Get Test Submissions (who submitted)
-app.get('/api/teacher/test/:testId/submissions', authenticateToken, async (req, res) => {
+app.get('/api/teacher/test/:testId/submissions', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const test_id = req.params.testId;
     
@@ -1078,7 +1096,7 @@ app.get('/api/teacher/test/:testId/submissions', authenticateToken, async (req, 
 });
 
 // 17. Teacher: Get Student's Detailed Progress
-app.get('/api/teacher/student/:studentId/progress', authenticateToken, async (req, res) => {
+app.get('/api/teacher/student/:studentId/progress', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const student_id = req.params.studentId;
     
@@ -1109,7 +1127,7 @@ app.get('/api/teacher/student/:studentId/progress', authenticateToken, async (re
 });
 
 // 18. Student: Get My Tests (Pending & Completed)
-app.get('/api/student/tests', authenticateToken, async (req, res) => {
+app.get('/api/student/tests', authenticateToken, studentOnly, async (req, res) => {
   try {
     const student_id = req.user.id;
     
@@ -1163,7 +1181,7 @@ app.get('/api/student/tests', authenticateToken, async (req, res) => {
 });
 
 // 19. Student: Get Test to Take
-app.get('/api/student/test/:testId', authenticateToken, async (req, res) => {
+app.get('/api/student/test/:testId', authenticateToken, studentOnly, async (req, res) => {
   try {
     const test_id = req.params.testId;
     const student_id = req.user.id;
@@ -1196,7 +1214,7 @@ app.get('/api/student/test/:testId', authenticateToken, async (req, res) => {
 });
 
 // 20. Student: Submit Test
-app.post('/api/student/test/submit', authenticateToken, async (req, res) => {
+app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req, res) => {
   try {
     const { test_id, answers, time_taken } = req.body;
     const student_id = req.user.id;
@@ -1357,7 +1375,7 @@ app.post('/api/student/test/submit', authenticateToken, async (req, res) => {
 });
 
 // 21. Student: Get My Progress Overview
-app.get('/api/student/progress', authenticateToken, async (req, res) => {
+app.get('/api/student/progress', authenticateToken, studentOnly, async (req, res) => {
   try {
     const student_id = req.user.id;
     
@@ -1385,7 +1403,7 @@ app.get('/api/student/progress', authenticateToken, async (req, res) => {
 // --- ROUTES: CODING WORKBENCH ---
 
 // 22. Student: Submit Code Solution
-app.post('/api/student/submit-code', authenticateToken, async (req, res) => {
+app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req, res) => {
   try {
     const { moduleId, code, language, testCases } = req.body;
     const studentId = req.user.id;
