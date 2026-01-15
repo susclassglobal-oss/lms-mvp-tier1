@@ -7,6 +7,7 @@ const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const notificationService = require('./notificationService');
 
 const app = express();
 app.use(express.json());
@@ -21,6 +22,9 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
+
+// Initialize notification service
+notificationService.initializeNotificationService(pool);
 
 // --- CLOUDINARY CONFIGURATION ---
 cloudinary.config({
@@ -129,10 +133,37 @@ app.post('/api/admin/register-teacher', authenticateToken, adminOnly, async (req
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
     // Note: We pass objects directly; pg driver handles JSON conversion for JSONB columns
     const query = `INSERT INTO teachers (name, email, password, staff_id, dept, media, allocated_sections) 
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+                   VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
     const values = [name, email, hashed, staff_id, dept, media || {}, []];
     
-    await pool.query(query, values);
+    const result = await pool.query(query, values);
+    const teacherId = result.rows[0].id;
+    
+    // 🔔 NOTIFICATION: Welcome email
+    try {
+      const teacher = {
+        id: teacherId,
+        type: 'teacher',
+        email: email,
+        name: name
+      };
+      
+      await notificationService.sendEmail(
+        'ACCOUNT_CREATED',
+        teacher,
+        {
+          name: name,
+          email: email,
+          role: 'teacher',
+          staff_id: staff_id
+        },
+        { teacher_id: teacherId }
+      );
+      console.log(`✓ Sent ACCOUNT_CREATED notification to teacher ${name}`);
+    } catch (notifErr) {
+      console.error('Welcome notification error (non-blocking):', notifErr);
+    }
+    
     res.status(201).json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "DB Error: " + err.message });
@@ -170,11 +201,39 @@ app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req
     
     console.log("✓ Password hashed, inserting into database...");
     const query = `INSERT INTO students (name, email, password, reg_no, class_dept, section, media) 
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+                   VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
     const values = [name, email, hashed, reg_no, class_dept, section, media || {}];
     
-    await pool.query(query, values);
+    const result = await pool.query(query, values);
+    const studentId = result.rows[0].id;
     console.log("✓ Student registered successfully!");
+    
+    // 🔔 NOTIFICATION: Welcome email
+    try {
+      const student = {
+        id: studentId,
+        type: 'student',
+        email: email,
+        name: name
+      };
+      
+      await notificationService.sendEmail(
+        'ACCOUNT_CREATED',
+        student,
+        {
+          name: name,
+          email: email,
+          role: 'student',
+          reg_no: reg_no,
+          section: section
+        },
+        { student_id: studentId }
+      );
+      console.log(`✓ Sent ACCOUNT_CREATED notification to student ${name}`);
+    } catch (notifErr) {
+      console.error('Welcome notification error (non-blocking):', notifErr);
+    }
+    
     res.status(201).json({ success: true });
   } catch (err) {
     console.error("❌ Registration Error:", err.message);
@@ -498,7 +557,33 @@ app.post('/api/teacher/upload-module', authenticateToken, async (req, res) => {
     const values = [section, subject, topic, teacherId, teacherName, steps.length, JSON.stringify(steps)];
     
     const result = await pool.query(query, values);
-    res.status(201).json({ success: true, moduleId: result.rows[0].id });
+    const moduleId = result.rows[0].id;
+    
+    // 🔔 NOTIFICATION: Send to all students in section
+    try {
+      const students = await notificationService.getStudentsInSection(section, 'MODULE_PUBLISHED');
+      
+      if (students.length > 0) {
+        await notificationService.sendBatchEmails(
+          'MODULE_PUBLISHED',
+          students,
+          (student) => ({
+            student_name: student.name,
+            section: section,
+            topic_title: topic,
+            subject: subject,
+            teacher_name: teacherName,
+            step_count: steps.length
+          }),
+          { module_id: moduleId, teacher_id: teacherId }
+        );
+        console.log(`✓ Sent MODULE_PUBLISHED notifications to ${students.length} students`);
+      }
+    } catch (notifErr) {
+      console.error('Notification error (non-blocking):', notifErr);
+    }
+    
+    res.status(201).json({ success: true, moduleId });
   } catch (err) {
     console.error("Module Upload Error:", err);
     res.status(500).json({ error: "Failed to publish module: " + err.message });
@@ -786,7 +871,34 @@ app.post('/api/teacher/test/create', authenticateToken, async (req, res) => {
       JSON.stringify(questions), questions.length, start_date, deadline
     ]);
     
-    res.status(201).json({ success: true, test: result.rows[0] });
+    const test = result.rows[0];
+    
+    // 🔔 NOTIFICATION: Send to all students in section
+    try {
+      const students = await notificationService.getStudentsInSection(section, 'TEST_ASSIGNED');
+      
+      if (students.length > 0) {
+        await notificationService.sendBatchEmails(
+          'TEST_ASSIGNED',
+          students,
+          (student) => ({
+            student_name: student.name,
+            section: section,
+            test_title: title,
+            description: description,
+            total_questions: questions.length,
+            start_date: start_date,
+            deadline: deadline
+          }),
+          { test_id: test.id, teacher_id: teacher_id }
+        );
+        console.log(`✓ Sent TEST_ASSIGNED notifications to ${students.length} students`);
+      }
+    } catch (notifErr) {
+      console.error('Notification error (non-blocking):', notifErr);
+    }
+    
+    res.status(201).json({ success: true, test });
   } catch (err) {
     console.error("Test Creation Error:", err);
     res.status(500).json({ error: "Failed to create test: " + err.message });
@@ -1027,9 +1139,85 @@ app.post('/api/student/test/submit', authenticateToken, async (req, res) => {
       test_id, student_id, name, reg_no, JSON.stringify(answers), score, percentage, status, time_taken
     ]);
     
-    console.log("Submission saved:", result.rows[0]);
+    const submission = result.rows[0];
+    console.log("Submission saved:", submission);
     
-    res.json({ success: true, submission: result.rows[0] });
+    // 🔔 NOTIFICATION 1: Notify teacher about submission
+    try {
+      const testInfo = await pool.query(
+        'SELECT teacher_id, teacher_name, section, title FROM mcq_tests WHERE id = $1',
+        [test_id]
+      );
+      
+      if (testInfo.rows.length > 0) {
+        const testData = testInfo.rows[0];
+        const teacher = await notificationService.getTeacherById(testData.teacher_id);
+        
+        if (teacher) {
+          await notificationService.sendEmail(
+            'TEST_SUBMITTED',
+            teacher,
+            {
+              teacher_name: teacher.name,
+              student_name: name,
+              student_reg_no: reg_no,
+              test_title: testData.title,
+              score: score,
+              total_questions: total_questions,
+              percentage: percentage,
+              status: status,
+              submitted_at: new Date().toISOString(),
+              test_id: test_id
+            },
+            { test_id, student_id, submission_id: submission.id }
+          );
+          console.log(`✓ Sent TEST_SUBMITTED notification to teacher ${teacher.name}`);
+        }
+      }
+    } catch (notifErr) {
+      console.error('Teacher notification error (non-blocking):', notifErr);
+    }
+    
+    // 🔔 NOTIFICATION 2: Notify student about grade
+    try {
+      const studentInfo = await pool.query(
+        'SELECT email FROM students WHERE id = $1',
+        [student_id]
+      );
+      
+      const testInfo = await pool.query(
+        'SELECT title FROM mcq_tests WHERE id = $1',
+        [test_id]
+      );
+      
+      if (studentInfo.rows.length > 0 && testInfo.rows.length > 0) {
+        const student = {
+          id: student_id,
+          type: 'student',
+          email: studentInfo.rows[0].email,
+          name: name
+        };
+        
+        await notificationService.sendEmail(
+          'GRADE_POSTED',
+          student,
+          {
+            student_name: name,
+            test_title: testInfo.rows[0].title,
+            score: score,
+            total_questions: total_questions,
+            percentage: percentage,
+            status: status
+          },
+          { test_id, submission_id: submission.id }
+        );
+        console.log(`✓ Sent GRADE_POSTED notification to student ${name}`);
+      }
+    } catch (notifErr) {
+      console.error('Student grade notification error (non-blocking):', notifErr);
+    }
+    
+    res.json({ success: true, submission });
   } catch (err) {
     console.error("Test Submission Error:", err);
     res.status(500).json({ error: "Failed to submit test: " + err.message });
@@ -1124,6 +1312,123 @@ app.post('/api/student/submit-code', authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error: " + err.message });
   }
 });
+
+// ============================================================
+// NOTIFICATION SYSTEM ENDPOINTS
+// ============================================================
+
+// Get user notification preferences
+app.get('/api/notifications/preferences', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userType = req.user.role;
+    
+    const result = await pool.query(
+      `SELECT * FROM v_user_notification_settings 
+       WHERE user_id = $1 AND user_type = $2
+       ORDER BY category, event_name`,
+      [userId, userType]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get Notification Preferences Error:', err);
+    res.status(500).json({ error: 'Failed to load notification preferences' });
+  }
+});
+
+// Update notification preference
+app.put('/api/notifications/preferences/:eventCode', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userType = req.user.role;
+    const eventCode = req.params.eventCode;
+    const { email_enabled, sms_enabled } = req.body;
+    
+    const result = await pool.query(
+      `INSERT INTO notification_preferences (user_id, user_type, event_code, email_enabled, sms_enabled)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, user_type, event_code) 
+       DO UPDATE SET 
+         email_enabled = EXCLUDED.email_enabled,
+         sms_enabled = EXCLUDED.sms_enabled,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [userId, userType, eventCode, email_enabled, sms_enabled]
+    );
+    
+    res.json({ success: true, preference: result.rows[0] });
+  } catch (err) {
+    console.error('Update Notification Preference Error:', err);
+    res.status(500).json({ error: 'Failed to update notification preference' });
+  }
+});
+
+// Get user notification history
+app.get('/api/notifications/history', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userType = req.user.role;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+    
+    const result = await pool.query(
+      `SELECT * FROM v_recent_notifications 
+       WHERE recipient_id = $1 AND recipient_type = $2
+       ORDER BY created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [userId, userType, limit, offset]
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get Notification History Error:', err);
+    res.status(500).json({ error: 'Failed to load notification history' });
+  }
+});
+
+// Get notification statistics (admin/teacher)
+app.get('/api/notifications/stats', authenticateToken, async (req, res) => {
+  try {
+    // Only allow teachers and admins
+    if (req.user.role !== 'admin' && req.user.role !== 'teacher') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    const result = await pool.query(
+      `SELECT * FROM v_notification_stats 
+       WHERE date >= CURRENT_DATE - INTERVAL '30 days'
+       ORDER BY date DESC, event_code`
+    );
+    
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get Notification Stats Error:', err);
+    res.status(500).json({ error: 'Failed to load notification statistics' });
+  }
+});
+
+// Manual test notification (development only)
+if (process.env.ENABLE_DEV_ENDPOINTS === 'true' || process.env.NODE_ENV !== 'production') {
+  app.post('/api/notifications/test', authenticateToken, async (req, res) => {
+    try {
+      const { eventCode, data } = req.body;
+      
+      const recipient = {
+        id: req.user.id,
+        type: req.user.role,
+        email: req.user.email,
+        name: req.user.name || 'User'
+      };
+      
+      const result = await notificationService.sendEmail(eventCode, recipient, data, { test: true });
+      res.json({ success: true, result });
+    } catch (err) {
+      console.error('Test Notification Error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 SERVER ACTIVE ON PORT ${PORT}`));

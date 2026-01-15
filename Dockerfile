@@ -26,8 +26,13 @@ FROM node:18-alpine
 
 WORKDIR /app/backend
 
-# Install PostgreSQL client tools (for health checks)
-RUN apk add --no-cache postgresql-client curl
+# Install build dependencies for bcrypt and other native modules
+RUN apk add --no-cache \
+    postgresql-client \
+    curl \
+    python3 \
+    make \
+    g++
 
 # Copy backend dependencies
 COPY backend/package*.json ./
