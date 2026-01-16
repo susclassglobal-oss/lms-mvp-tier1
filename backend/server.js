@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
@@ -11,8 +13,49 @@ const nodemailer = require('nodemailer');
 const notificationService = require('./notificationService');
 
 const app = express();
-app.use(express.json());
-app.use(cors());
+
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false
+}));
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || ['http://localhost:5173', 'http://localhost:3000'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/', globalLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts, please try again after 15 minutes' },
+  skipSuccessfulRequests: true
+});
+
+const otpLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many OTP attempts, please try again after 5 minutes' }
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 50,
+  message: { error: 'Upload limit reached, please try again later' }
+});
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -101,13 +144,18 @@ const allowRoles = (...roles) => (req, res, next) => {
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: 'susclass.global@gmail.com', // Your actual Gmail
-        pass: 'gbrv skhz axve aegs' // Your Google App Password (no spaces)
+        user: process.env.SMTP_USER || 'susclass.global@gmail.com',
+        pass: process.env.SMTP_PASSWORD || process.env.SMTP_APP_PASSWORD
     }
 });
 
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', authLimiter, (req, res) => {
   const { email, password } = req.body;
+  
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: "Email and password required" });
+  }
+  
   if (email === process.env.ADMIN_EMAIL && password === process.env.ADMIN_PASSWORD) {
     const token = jwt.sign({ email, role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ success: true, token });
@@ -116,9 +164,18 @@ app.post('/api/admin/login', (req, res) => {
   }
 });
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
     const { email, password, role } = req.body;
+    
+    if (!email || !password || !role) {
+      return res.status(400).json({ success: false, message: "Email, password, and role required" });
+    }
+    
     const activeRole = role.toLowerCase();
+    if (!['student', 'teacher'].includes(activeRole)) {
+      return res.status(400).json({ success: false, message: "Invalid role" });
+    }
+    
     const table = activeRole === 'student' ? 'students' : 'teachers';
 
     try {
@@ -130,7 +187,7 @@ app.post('/api/login', async (req, res) => {
             
             if (isMatch) {
                 const otp = Math.floor(100000 + Math.random() * 900000).toString();
-                const otpExpiry = new Date(Date.now() + 5 * 60000); // 5 mins
+                const otpExpiry = new Date(Date.now() + 5 * 60000);
 
                 await pool.query(
                     `UPDATE ${table} SET otp_code = $1, otp_expiry = $2 WHERE id = $3`,
@@ -138,8 +195,8 @@ app.post('/api/login', async (req, res) => {
                 );
 
                 const mailOptions = {
-                    from: 'susclass.global@gmail.com',
-                    to: email, // Sends to the email the user just typed in the login form
+                    from: process.env.SMTP_USER || 'susclass.global@gmail.com',
+                    to: email,
                     subject: 'Your Portal Access Code',
                     html: `
                         <div style="font-family: sans-serif; text-align: center; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
@@ -165,8 +222,14 @@ app.post('/api/login', async (req, res) => {
         res.status(500).json({ error: "Database or Mailer error" });
     }
 });
-app.post('/api/verify-otp', async (req, res) => {
+
+app.post('/api/verify-otp', otpLimiter, async (req, res) => {
     const { email, otp, role } = req.body;
+    
+    if (!email || !otp || !role) {
+      return res.status(400).json({ success: false, message: "Email, OTP, and role required" });
+    }
+    
     const table = role.toLowerCase() === 'student' ? 'students' : 'teachers';
 
     try {
@@ -514,7 +577,7 @@ app.get('/api/teacher/students/:section', authenticateToken, teacherOnly, async 
 });
 
 
-app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
+app.post('/api/upload', authenticateToken, uploadLimiter, upload.single('file'), (req, res) => {
   try {
     console.log("Upload request received");
     console.log("File:", req.file);
@@ -1720,6 +1783,41 @@ if (process.env.ENABLE_DEV_ENDPOINTS === 'true' || process.env.NODE_ENV !== 'pro
     }
   });
 }
+
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Unhandled Error:', err);
+  
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request payload too large' });
+  }
+  
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+  
+  if (err.name === 'TokenExpiredError') {
+    return res.status(401).json({ error: 'Token expired' });
+  }
+  
+  res.status(500).json({ 
+    error: process.env.NODE_ENV === 'production' 
+      ? 'Internal server error' 
+      : err.message 
+  });
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
 
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
