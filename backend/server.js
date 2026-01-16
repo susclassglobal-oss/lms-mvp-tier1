@@ -14,14 +14,25 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// --- HEALTH CHECK ENDPOINT ---
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // --- CONFIGURATION ---
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your_new_secure_secret_key';
 
-// --- DATABASE CONNECTION (NEON) ---
+// --- DATABASE CONNECTION ---
+// Auto-detect SSL: Enable for cloud databases (Neon, AWS), disable for local Docker
+const dbUrl = process.env.DATABASE_URL;
+const useSSL = dbUrl?.includes('neon.tech') || 
+               dbUrl?.includes('amazonaws.com') || 
+               dbUrl?.includes('sslmode=require');
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  connectionString: dbUrl,
+  ssl: useSSL ? { rejectUnauthorized: false } : false
 });
 
 // Initialize notification service

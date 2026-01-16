@@ -11,13 +11,19 @@ const fs = require('fs');
 const path = require('path');
 
 console.log('\n========================================');
-console.log('🔔 Notification System Setup');
+console.log('Notification System Setup');
 console.log('========================================\n');
 
 // Create database connection
+// Auto-detect SSL: Enable for cloud databases (Neon, AWS), disable for local Docker
+const dbUrl = process.env.DATABASE_URL;
+const useSSL = dbUrl?.includes('neon.tech') || 
+               dbUrl?.includes('amazonaws.com') || 
+               dbUrl?.includes('sslmode=require');
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  connectionString: dbUrl,
+  ssl: useSSL ? { rejectUnauthorized: false } : false
 });
 
 async function setupNotifications() {
