@@ -15,9 +15,14 @@ console.log('🔔 Notification System Setup');
 console.log('========================================\n');
 
 // Create database connection
+const dbUrl = process.env.DATABASE_URL;
+const useSSL = dbUrl?.includes('neon.tech') || 
+               dbUrl?.includes('amazonaws.com') || 
+               dbUrl?.includes('sslmode=require');
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  connectionString: dbUrl,
+  ssl: useSSL ? { rejectUnauthorized: false } : false
 });
 
 async function setupNotifications() {

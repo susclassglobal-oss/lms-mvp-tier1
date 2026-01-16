@@ -152,7 +152,8 @@ const fetchTeacherProfile = useCallback(async () => {
         const key = `${item.subject}|${item.class_dept} ${item.section}`;
         if (!groupedAllocations[key]) {
           groupedAllocations[key] = {
-            subject: item.subject,
+            // subject removed – not present in backend schema
+
             department: item.class_dept,
             section: item.section,
             fullSection: `${item.class_dept} ${item.section}`,
