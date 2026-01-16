@@ -319,7 +319,7 @@ afterAll(() => {
   if (db) db.close();
 });
 
-describe('🔐 Authentication & OTP', () => {
+describe('Authentication & OTP', () => {
   let testStudent, testTeacher;
   
   beforeAll(async () => {
@@ -405,7 +405,7 @@ describe('🔐 Authentication & OTP', () => {
   });
 });
 
-describe('👥 User Registration & Notifications', () => {
+describe('User Registration & Notifications', () => {
   let adminToken;
   
   beforeAll(() => {
@@ -473,7 +473,7 @@ describe('👥 User Registration & Notifications', () => {
   });
 });
 
-describe('📚 Module Management', () => {
+describe('Module Management', () => {
   let teacherToken, studentToken, moduleId;
   
   beforeAll(() => {
@@ -530,7 +530,7 @@ describe('📚 Module Management', () => {
   });
 });
 
-describe('📝 Test Management & Submissions', () => {
+describe('Test Management & Submissions', () => {
   let teacherToken, studentToken, testId;
   
   beforeAll(() => {
@@ -615,7 +615,7 @@ describe('📝 Test Management & Submissions', () => {
   });
 });
 
-describe('💻 Code Submission', () => {
+describe('Code Submission', () => {
   let studentToken;
   
   beforeAll(() => {
@@ -661,7 +661,7 @@ describe('💻 Code Submission', () => {
   });
 });
 
-describe('🔔 Notification API Endpoints', () => {
+describe('Notification API Endpoints', () => {
   let studentToken, teacherToken;
   
   beforeAll(() => {
@@ -724,7 +724,7 @@ describe('🔔 Notification API Endpoints', () => {
   });
 });
 
-describe('🔒 Authorization Guards', () => {
+describe('Authorization Guards', () => {
   let studentToken;
   
   beforeAll(() => {
@@ -757,4 +757,222 @@ describe('🔒 Authorization Guards', () => {
   });
 });
 
-console.log('\n✅ Test suite complete - merge validation successful!\n');
+describe('Health Check Endpoint', () => {
+  test('GET /api/health returns ok status', async () => {
+    const res = await request(app).get('/api/health');
+    
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.timestamp).toBeDefined();
+  });
+});
+
+describe('Password Change - Student', () => {
+  let studentToken, testStudentId;
+  
+  beforeAll(async () => {
+    // Create a student with known password for password change tests
+    const hashedPass = await bcrypt.hash('oldpassword123', 10);
+    const insertStudent = db.prepare('INSERT INTO students (name, email, password, reg_no, class_dept, section) VALUES (?, ?, ?, ?, ?, ?)');
+    const info = insertStudent.run('Password Test Student', 'pwstudent@test.com', hashedPass, 'PWD001', 'CS', 'A');
+    testStudentId = info.lastInsertRowid;
+    studentToken = jwt.sign({ id: testStudentId, email: 'pwstudent@test.com', role: 'student' }, JWT_SECRET);
+  });
+  
+  test('requires authentication', async () => {
+    const res = await request(app)
+      .post('/api/student/change-password')
+      .send({ currentPassword: 'old', newPassword: 'new123' });
+    
+    expect(res.status).toBe(401);
+  });
+  
+  test('requires current password field', async () => {
+    const res = await request(app)
+      .post('/api/student/change-password')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ newPassword: 'newpassword123' });
+    
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/[Cc]urrent password/);
+  });
+  
+  test('requires new password field', async () => {
+    const res = await request(app)
+      .post('/api/student/change-password')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ currentPassword: 'oldpassword123' });
+    
+    expect(res.status).toBe(400);
+  });
+  
+  test('rejects password shorter than 6 characters', async () => {
+    const res = await request(app)
+      .post('/api/student/change-password')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ currentPassword: 'oldpassword123', newPassword: '12345' });
+    
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at least 6 characters/);
+  });
+  
+  test('rejects wrong current password', async () => {
+    const res = await request(app)
+      .post('/api/student/change-password')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ currentPassword: 'wrongpassword', newPassword: 'newpassword123' });
+    
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/incorrect/i);
+  });
+  
+  test('successfully changes password with correct credentials', async () => {
+    const res = await request(app)
+      .post('/api/student/change-password')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ currentPassword: 'oldpassword123', newPassword: 'newpassword123' });
+    
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    
+    // Verify password was actually changed in DB
+    const student = db.prepare('SELECT password FROM students WHERE id = ?').get(testStudentId);
+    const passwordMatches = await bcrypt.compare('newpassword123', student.password);
+    expect(passwordMatches).toBe(true);
+  });
+});
+
+describe('Password Change - Teacher', () => {
+  let teacherToken, testTeacherId;
+  
+  beforeAll(async () => {
+    const hashedPass = await bcrypt.hash('teacherpass123', 10);
+    const insertTeacher = db.prepare('INSERT INTO teachers (name, email, password, staff_id, dept) VALUES (?, ?, ?, ?, ?)');
+    const info = insertTeacher.run('Password Test Teacher', 'pwteacher@test.com', hashedPass, 'PWSTAFF01', 'CS');
+    testTeacherId = info.lastInsertRowid;
+    teacherToken = jwt.sign({ id: testTeacherId, email: 'pwteacher@test.com', role: 'teacher' }, JWT_SECRET);
+  });
+  
+  test('student cannot access teacher password change', async () => {
+    const studentToken = jwt.sign({ id: 1, email: 'student@test.com', role: 'student' }, JWT_SECRET);
+    const res = await request(app)
+      .post('/api/teacher/change-password')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ currentPassword: 'test', newPassword: 'newpass123' });
+    
+    expect(res.status).toBe(403);
+  });
+  
+  test('rejects wrong current password', async () => {
+    const res = await request(app)
+      .post('/api/teacher/change-password')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({ currentPassword: 'wrongpassword', newPassword: 'newteacherpass' });
+    
+    expect(res.status).toBe(401);
+  });
+  
+  test('successfully changes password', async () => {
+    const res = await request(app)
+      .post('/api/teacher/change-password')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({ currentPassword: 'teacherpass123', newPassword: 'newteacherpass' });
+    
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+describe('Admin Password Reset', () => {
+  let adminToken, targetStudentId, targetTeacherId;
+  
+  beforeAll(async () => {
+    adminToken = jwt.sign({ id: 0, email: ADMIN_EMAIL, role: 'admin' }, JWT_SECRET);
+    
+    // Create target users for password reset
+    const hashedPass = await bcrypt.hash('originalpass', 10);
+    const studentInfo = db.prepare('INSERT INTO students (name, email, password, reg_no, class_dept, section) VALUES (?, ?, ?, ?, ?, ?)')
+      .run('Reset Target Student', 'resetstudent@test.com', hashedPass, 'RST001', 'CS', 'A');
+    targetStudentId = studentInfo.lastInsertRowid;
+    
+    const teacherInfo = db.prepare('INSERT INTO teachers (name, email, password, staff_id, dept) VALUES (?, ?, ?, ?, ?)')
+      .run('Reset Target Teacher', 'resetteacher@test.com', hashedPass, 'RSTSTAFF', 'CS');
+    targetTeacherId = teacherInfo.lastInsertRowid;
+  });
+  
+  test('non-admin cannot reset student password', async () => {
+    const teacherToken = jwt.sign({ id: 1, email: 'teacher@test.com', role: 'teacher' }, JWT_SECRET);
+    const res = await request(app)
+      .post('/api/admin/reset-student-password')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .send({ studentId: targetStudentId, newPassword: 'newpass123' });
+    
+    expect(res.status).toBe(403);
+  });
+  
+  test('requires studentId field', async () => {
+    const res = await request(app)
+      .post('/api/admin/reset-student-password')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ newPassword: 'newpass123' });
+    
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/[Ss]tudent ID/);
+  });
+  
+  test('requires newPassword field', async () => {
+    const res = await request(app)
+      .post('/api/admin/reset-student-password')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ studentId: targetStudentId });
+    
+    expect(res.status).toBe(400);
+  });
+  
+  test('rejects short password', async () => {
+    const res = await request(app)
+      .post('/api/admin/reset-student-password')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ studentId: targetStudentId, newPassword: '123' });
+    
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at least 6 characters/);
+  });
+  
+  test('successfully resets student password', async () => {
+    const res = await request(app)
+      .post('/api/admin/reset-student-password')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ studentId: targetStudentId, newPassword: 'adminreset123' });
+    
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    
+    // Verify password was changed
+    const student = db.prepare('SELECT password FROM students WHERE id = ?').get(targetStudentId);
+    const matches = await bcrypt.compare('adminreset123', student.password);
+    expect(matches).toBe(true);
+  });
+  
+  test('non-admin cannot reset teacher password', async () => {
+    const studentToken = jwt.sign({ id: 1, email: 'student@test.com', role: 'student' }, JWT_SECRET);
+    const res = await request(app)
+      .post('/api/admin/reset-teacher-password')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ teacherId: targetTeacherId, newPassword: 'newpass123' });
+    
+    expect(res.status).toBe(403);
+  });
+  
+  test('successfully resets teacher password', async () => {
+    const res = await request(app)
+      .post('/api/admin/reset-teacher-password')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ teacherId: targetTeacherId, newPassword: 'teacherresetpass' });
+    
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+console.log('\n[OK] Test suite complete - merge validation successful!\n');
