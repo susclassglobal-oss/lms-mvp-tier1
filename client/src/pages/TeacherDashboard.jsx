@@ -12,14 +12,12 @@ function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [allAllocations, setAllAllocations] = useState([]); // Store all teacher's class allocations
   
-  // Class Roster filtering states
   const [filterMode, setFilterMode] = useState('department'); // 'department' or 'subject'
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedDeptSection, setSelectedDeptSection] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('');
   const [filteredStudents, setFilteredStudents] = useState([]);
   
-  // MCQ Test states
   const [tests, setTests] = useState([]);
   const [showCreateTest, setShowCreateTest] = useState(false);
   const [selectedTest, setSelectedTest] = useState(null); // For viewing test submissions
@@ -40,12 +38,10 @@ function TeacherDashboard() {
     correct: 'A'
   });
   
-  // Student progress modal
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentProgress, setStudentProgress] = useState(null);
   const [showProgressModal, setShowProgressModal] = useState(false);
 
-  // Password change state
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -59,7 +55,6 @@ function TeacherDashboard() {
     'Content-Type': 'application/json'
   }), [token]);
 
-  // Helper functions for filtering
   const getUniqueDepartments = useCallback(() => {
     const depts = [...new Set(allAllocations.map(a => a.department))];
     return depts.sort();
@@ -89,14 +84,12 @@ function TeacherDashboard() {
     return allocations;
   }, [allAllocations]);
 
-  // Update filtered students when selections change
   useEffect(() => {
     if (filterMode === 'department' && selectedDepartment && selectedDeptSection) {
       const students = getStudentsByDepartmentSection(selectedDepartment, selectedDeptSection);
       setFilteredStudents(students);
     } else if (filterMode === 'subject' && selectedSubject) {
       const allocations = getStudentsBySubject(selectedSubject);
-      // Flatten all students from all sections teaching this subject
       const allStudents = allocations.flatMap(a => 
         a.students.map(s => ({
           ...s,
@@ -111,17 +104,14 @@ function TeacherDashboard() {
     }
   }, [filterMode, selectedDepartment, selectedDeptSection, selectedSubject, getStudentsByDepartmentSection, getStudentsBySubject]);
 
-  // Get subject(s) for selected section
   const getSubjectForSection = useCallback((section) => {
     const allocations = allAllocations.filter(a => a.fullSection === section);
     if (allocations.length === 0) return null;
     
-    // Get unique subjects for this section
     const subjects = [...new Set(allocations.map(a => a.subject))];
     return subjects.join(', ');
   }, [allAllocations]);
 
-// In TeacherDashboard.jsx, ensure this part looks like this:
 const fetchTeacherProfile = useCallback(async () => {
   try {
     const res = await fetch('http://localhost:5000/api/teacher/me', { headers: authHeaders() });
@@ -137,7 +127,6 @@ const fetchTeacherProfile = useCallback(async () => {
     console.log("Teacher profile loaded:", data);
     setTeacherInfo(data);
     
-    // Fetch teacher's allocated students from new system
     const allocRes = await fetch('http://localhost:5000/api/teacher/my-students', {
       headers: authHeaders()
     });
@@ -146,7 +135,6 @@ const fetchTeacherProfile = useCallback(async () => {
       const allocData = await allocRes.json();
       console.log("Teacher allocations:", allocData);
       
-      // Group by subject and section
       const groupedAllocations = {};
       allocData.forEach(item => {
         const key = `${item.subject}|${item.class_dept} ${item.section}`;
@@ -159,7 +147,6 @@ const fetchTeacherProfile = useCallback(async () => {
             students: []
           };
         }
-        // Store with mapped field names for consistency
         groupedAllocations[key].students.push({
           id: item.student_id,
           name: item.student_name,
@@ -173,7 +160,6 @@ const fetchTeacherProfile = useCallback(async () => {
       console.log("Grouped allocations:", allocationsArray);
       setAllAllocations(allocationsArray);
       
-      // Extract unique sections for backward compatibility
       const sections = [...new Set(allocData.map(item => `${item.class_dept} ${item.section}`))];
       if (sections.length > 0) {
         setSelectedSection(sections[0]);
@@ -190,7 +176,6 @@ const fetchTeacherProfile = useCallback(async () => {
       if (!selectedSection || !teacherInfo) return;
 
       try {
-        // Fetch from new allocation system
         const res = await fetch('http://localhost:5000/api/teacher/my-students', { 
           headers: authHeaders() 
         });
@@ -199,7 +184,6 @@ const fetchTeacherProfile = useCallback(async () => {
         
         const data = await res.json();
         
-        // Filter by selected section and map to expected format
         const filteredStudents = data
           .filter(item => `${item.class_dept} ${item.section}` === selectedSection)
           .map(item => ({
@@ -231,7 +215,6 @@ const fetchTeacherProfile = useCallback(async () => {
     fetchStudents();
   }, [selectedSection, fetchStudents]);
   
-  // Fetch tests when Tests tab is active
   const fetchTests = useCallback(async () => {
     if (!selectedSection) return;
     try {
@@ -251,7 +234,6 @@ const fetchTeacherProfile = useCallback(async () => {
     }
   }, [activeTab, selectedSection, fetchTests]);
   
-  // Fetch test submissions for a specific test
   const fetchTestSubmissions = useCallback(async (testId) => {
     try {
       const res = await fetch(`http://localhost:5000/api/teacher/test/${testId}/submissions`, {
@@ -265,19 +247,16 @@ const fetchTeacherProfile = useCallback(async () => {
     }
   }, [authHeaders]);
   
-  // View test submissions
   const handleViewTestSubmissions = async (test) => {
     setSelectedTest(test);
     await fetchTestSubmissions(test.test_id);
   };
   
-  // Close test submissions view
   const handleCloseTestView = () => {
     setSelectedTest(null);
     setTestSubmissions([]);
   };
   
-  // Add question to list
   const handleAddQuestion = () => {
     if (!currentQuestion.question || !currentQuestion.a || !currentQuestion.b || !currentQuestion.c || !currentQuestion.d) {
       alert("Please fill all question fields");
@@ -287,7 +266,6 @@ const fetchTeacherProfile = useCallback(async () => {
     setCurrentQuestion({ question: '', a: '', b: '', c: '', d: '', correct: 'A' });
   };
   
-  // Handle CSV Upload
   const handleCSVUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -298,7 +276,6 @@ const fetchTeacherProfile = useCallback(async () => {
         const text = e.target.result;
         const lines = text.split('\n').filter(line => line.trim());
         
-        // Skip header row if it exists
         const startIndex = lines[0].toLowerCase().includes('question') ? 1 : 0;
         
         const parsedQuestions = [];
@@ -306,7 +283,6 @@ const fetchTeacherProfile = useCallback(async () => {
           const line = lines[i].trim();
           if (!line) continue;
           
-          // Parse CSV line (handle commas in quotes)
           const values = line.match(/(".*?"|[^,]+)(?=\s*,|\s*$)/g).map(val => 
             val.replace(/^"|"$/g, '').trim()
           );
@@ -338,7 +314,6 @@ const fetchTeacherProfile = useCallback(async () => {
     event.target.value = ''; // Reset input
   };
   
-  // Create test
   const handleCreateTest = async () => {
     if (!testForm.title || !testForm.start_date || !testForm.deadline || questions.length < 15) {
       alert("Please fill all fields and add at least 15 questions");
@@ -372,16 +347,13 @@ const fetchTeacherProfile = useCallback(async () => {
     }
   };
   
-  // View student progress
   const viewStudentProgress = async (student) => {
     try {
-      // Fetch test progress
       const res = await fetch(`http://localhost:5000/api/teacher/student/${student.id}/progress`, {
         headers: authHeaders()
       });
       const testData = await res.json();
       
-      // Fetch module progress
       const moduleRes = await fetch(`http://localhost:5000/api/teacher/student/${student.id}/module-progress`, {
         headers: authHeaders()
       });
@@ -398,7 +370,6 @@ const fetchTeacherProfile = useCallback(async () => {
     }
   };
 
-  // Handle Teacher Password Change
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     setPasswordError('');
@@ -469,7 +440,6 @@ const fetchTeacherProfile = useCallback(async () => {
 
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900">
-      {/* SIDEBAR */}
       <aside className="w-80 bg-slate-900 text-white p-8 flex flex-col shadow-2xl z-10">
         <h2 className="text-3xl font-black text-emerald-400 italic mb-12">TEACHER<span className="text-white">DASH</span></h2>
         <nav className="flex-1 space-y-3">
@@ -486,8 +456,6 @@ const fetchTeacherProfile = useCallback(async () => {
         </nav>
         <button onClick={() => navigate('/')} className="p-5 rounded-2xl bg-red-500/10 text-red-500 font-black uppercase text-[10px]">Logout</button>
       </aside>
-
-      {/* MAIN CONTENT */}
       <main className="flex-1 p-14 overflow-y-auto">
         <header className="flex justify-between items-center mb-16">
           <div>
@@ -610,8 +578,6 @@ const fetchTeacherProfile = useCallback(async () => {
                         </tbody>
                       </table>
                     </div>
-                    
-                    {/* Summary Statistics */}
                     <div className="border-t bg-slate-50 p-6">
                       <div className="grid grid-cols-4 gap-4">
                         <div className="text-center">
@@ -637,7 +603,6 @@ const fetchTeacherProfile = useCallback(async () => {
                         <div className="text-center">
                           <p className="text-xs text-slate-500 font-bold uppercase mb-1">Completion Rate</p>
                           <p className="text-2xl font-black text-slate-700">
-                            {/* This would need total students in section to calculate properly */}
                             {testSubmissions.length}
                           </p>
                         </div>
@@ -722,7 +687,7 @@ const fetchTeacherProfile = useCallback(async () => {
                             onClick={() => handleViewTestSubmissions(test)}
                             className="w-full mt-6 bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-xs hover:bg-emerald-700 transition-all"
                           >
-                            👥 View Student Submissions
+                             View Student Submissions
                           </button>
                         </div>
                       ))}
@@ -749,8 +714,6 @@ const fetchTeacherProfile = useCallback(async () => {
                     </div>
                   </div>
                 </div>
-                
-                {/* CSV Upload Section */}
                 <div className="border-t pt-8 mb-8">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-black">Add Questions ({questions.length}/20)</h3>
@@ -758,7 +721,7 @@ const fetchTeacherProfile = useCallback(async () => {
                       onClick={() => document.getElementById('csv-upload').click()}
                       className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 flex items-center gap-2"
                     >
-                      📄 Upload CSV
+                       Upload CSV
                     </button>
                     <input
                       id="csv-upload"
@@ -768,8 +731,6 @@ const fetchTeacherProfile = useCallback(async () => {
                       onChange={handleCSVUpload}
                     />
                   </div>
-                  
-                  {/* CSV Format Help */}
                   <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
                     <p className="text-xs font-bold text-blue-800 mb-2">CSV Format:</p>
                     <code className="text-xs text-blue-700 block">
@@ -822,7 +783,7 @@ const fetchTeacherProfile = useCallback(async () => {
                               onClick={() => setQuestions(questions.filter((_, idx) => idx !== i))}
                               className="text-red-600 hover:text-red-700 font-bold"
                             >
-                              ✕
+                              
                             </button>
                           </div>
                         </div>
@@ -840,7 +801,6 @@ const fetchTeacherProfile = useCallback(async () => {
           </div>
         ) : (
           <div>
-            {/* Class Roster - Filtering Interface */}
             {allAllocations.length === 0 ? (
               <div className="text-center py-24 bg-white rounded-[3rem] border-2 border-dashed border-slate-200">
                 <div className="text-6xl mb-4 font-black text-slate-300">--</div>
@@ -849,7 +809,6 @@ const fetchTeacherProfile = useCallback(async () => {
               </div>
             ) : (
               <div>
-                {/* Filter Mode Selection */}
                 <div className="mb-8 bg-white p-6 rounded-[2rem] shadow-lg border-2 border-slate-100">
                   <h3 className="text-sm font-black text-slate-600 uppercase mb-4">Filter By:</h3>
                   <div className="flex gap-4">
@@ -885,11 +844,8 @@ const fetchTeacherProfile = useCallback(async () => {
                     </button>
                   </div>
                 </div>
-
-                {/* Department-based Filtering */}
                 {filterMode === 'department' && (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                    {/* Step 1: Select Department */}
                     <div className="bg-white p-6 rounded-[2rem] shadow-lg border-2 border-slate-100">
                       <h3 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">
                         1. Select Department
@@ -913,8 +869,6 @@ const fetchTeacherProfile = useCallback(async () => {
                         ))}
                       </div>
                     </div>
-
-                    {/* Step 2: Select Section */}
                     <div className="bg-white p-6 rounded-[2rem] shadow-lg border-2 border-slate-100">
                       <h3 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">
                         2. Select Section
@@ -941,8 +895,6 @@ const fetchTeacherProfile = useCallback(async () => {
                         </div>
                       )}
                     </div>
-
-                    {/* Step 3: Summary */}
                     <div className="bg-white p-6 rounded-[2rem] shadow-lg border-2 border-slate-100">
                       <h3 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">
                         3. Summary
@@ -970,11 +922,8 @@ const fetchTeacherProfile = useCallback(async () => {
                     </div>
                   </div>
                 )}
-
-                {/* Subject-based Filtering */}
                 {filterMode === 'subject' && (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    {/* Step 1: Select Subject */}
                     <div className="bg-white p-6 rounded-[2rem] shadow-lg border-2 border-slate-100">
                       <h3 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">
                         1. Select Subject
@@ -995,8 +944,6 @@ const fetchTeacherProfile = useCallback(async () => {
                         ))}
                       </div>
                     </div>
-
-                    {/* Step 2: Summary */}
                     <div className="bg-white p-6 rounded-[2rem] shadow-lg border-2 border-slate-100">
                       <h3 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">
                         2. Classes Teaching This Subject
@@ -1031,8 +978,6 @@ const fetchTeacherProfile = useCallback(async () => {
                     </div>
                   </div>
                 )}
-
-                {/* Student List Display */}
                 {filteredStudents.length > 0 && (
                   <div className="bg-white p-8 rounded-[2rem] shadow-lg border-2 border-slate-100">
                     <div className="flex items-center justify-between mb-6">
@@ -1086,15 +1031,11 @@ const fetchTeacherProfile = useCallback(async () => {
                 )}
               </div>
             )}
-            
-            {/* Student Progress Modal */}
             {showProgressModal && studentProgress && selectedStudent && (
               <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-8" onClick={() => setShowProgressModal(false)}>
                 <div className="bg-white rounded-[3rem] p-10 max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                   <h2 className="text-3xl font-black mb-2">{selectedStudent.name}</h2>
                   <p className="text-slate-400 mb-8">{selectedStudent.reg_no}</p>
-                  
-                  {/* Module Progress Section */}
                   {studentProgress.moduleProgress && (
                     <div className="mb-8 p-6 bg-purple-50 rounded-2xl border-2 border-purple-200">
                       <h3 className="font-black text-purple-800 mb-4 flex items-center gap-2">
@@ -1122,8 +1063,6 @@ const fetchTeacherProfile = useCallback(async () => {
                       </div>
                     </div>
                   )}
-                  
-                  {/* Test Progress Section */}
                   <h3 className="font-black mb-4 flex items-center gap-2">Test Performance</h3>
                   <div className="grid grid-cols-4 gap-4 mb-8">
                     <div className="bg-emerald-50 p-6 rounded-2xl text-center">
@@ -1180,8 +1119,6 @@ const fetchTeacherProfile = useCallback(async () => {
             )}
           </div>
         )}
-
-        {/* SETTINGS TAB */}
         {activeTab === 'settings' && (
           <div className="max-w-2xl">
             <div className="bg-white border border-slate-100 p-10 rounded-[3rem] shadow-sm">

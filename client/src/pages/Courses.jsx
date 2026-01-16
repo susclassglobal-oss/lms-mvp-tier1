@@ -48,8 +48,6 @@ function Courses() {
   return (
     <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-12 text-slate-900 font-sans">
       <div className="max-w-6xl mx-auto">
-        
-        {/* Navigation */}
         <button 
           onClick={() => navigate('/dashboard')}
           className="mb-8 flex items-center gap-2 text-slate-500 hover:text-emerald-600 font-semibold transition-all text-sm group"
@@ -64,18 +62,14 @@ function Courses() {
           </div>
           <NotificationBell />
         </header>
-
-        {/* Top Hero Section: Side-by-Side Tools */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
-          
-          {/* TOOL 1: CODING WORKBENCH */}
           <div
             onClick={() => navigate('/courses/code')}
             className="group cursor-pointer relative overflow-hidden p-8 rounded-[2rem] bg-white border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-500"
           >
             <div className="relative z-10">
               <div className="text-3xl mb-6 bg-emerald-50 text-emerald-600 w-16 h-16 flex items-center justify-center rounded-2xl group-hover:bg-emerald-500 group-hover:text-white transition-all duration-500">
-                <span role="img" aria-label="code">💻</span>
+                <span role="img" aria-label="code"></span>
               </div>
               <h2 className="text-2xl font-bold mb-2">Coding Workbench</h2>
               <p className="text-slate-500 mb-6">Practice HTML, CSS, and JS in a sandbox environment.</p>
@@ -84,8 +78,6 @@ function Courses() {
               </span>
             </div>
           </div>
-
-          {/* TOOL 2: ACTIVE LEARNING MODULE */}
           <div
             onClick={() => {
               if (modules.length > 0) navigate(`/learning/${modules[0].id}`);
@@ -94,7 +86,7 @@ function Courses() {
           >
             <div className="relative z-10">
               <div className="text-3xl mb-6 bg-white/10 text-emerald-400 w-16 h-16 flex items-center justify-center rounded-2xl group-hover:scale-110 transition-transform duration-500">
-                <span role="img" aria-label="rocket">🚀</span>
+                <span role="img" aria-label="rocket"></span>
               </div>
               <h2 className="text-2xl font-bold mb-2">Next Lesson</h2>
               <p className="text-slate-400 mb-6">
@@ -106,8 +98,6 @@ function Courses() {
             </div>
           </div>
         </div>
-
-        {/* Bottom Section: All Assigned Modules List */}
         <section>
           <div className="flex items-center justify-between mb-8">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">All Modules for {profile?.class_dept} {profile?.section}</h3>

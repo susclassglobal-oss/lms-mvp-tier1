@@ -98,7 +98,6 @@ export default function TestKnowledge() {
     </div>
   );
   
-  // Show result screen
   if (showResult && result) {
     return (
       <div className="min-h-screen bg-[#fdfdfd] flex items-center justify-center p-6 font-sans">
@@ -135,7 +134,6 @@ export default function TestKnowledge() {
     );
   }
   
-  // Taking test screen
   if (takingTest && currentTest) {
     return (
       <div className="min-h-screen bg-[#fdfdfd] p-8 lg:p-12 font-sans text-slate-800">
@@ -199,7 +197,6 @@ export default function TestKnowledge() {
     );
   }
 
-  // Main test list screen
   return (
     <div className="min-h-screen bg-[#fdfdfd] p-8 lg:p-12 font-sans text-slate-800">
       <div className="max-w-6xl mx-auto">
@@ -218,8 +215,6 @@ export default function TestKnowledge() {
           </div>
           <NotificationBell />
         </header>
-
-        {/* Pending Tests */}
         {pendingTests.length > 0 && (
           <section className="mb-12">
             <h2 className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-6">Pending Tests</h2>
@@ -247,8 +242,6 @@ export default function TestKnowledge() {
             </div>
           </section>
         )}
-
-        {/* Overdue Tests */}
         {overdueTests.length > 0 && (
           <section className="mb-12">
             <h2 className="text-sm font-black text-red-600 uppercase tracking-widest mb-6">Overdue Tests</h2>
@@ -276,8 +269,6 @@ export default function TestKnowledge() {
             </div>
           </section>
         )}
-
-        {/* Completed Tests */}
         {completedTests.length > 0 && (
           <section>
             <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6">Completed Tests</h2>

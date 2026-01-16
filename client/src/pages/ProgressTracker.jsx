@@ -56,8 +56,6 @@ export default function ProgressTracker() {
           </div>
           <NotificationBell />
         </header>
-
-        {/* STATS GRID */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
           <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Total Tests</p>
@@ -99,8 +97,6 @@ export default function ProgressTracker() {
             </div>
           </div>
         </div>
-
-        {/* PROGRESS SUMMARY */}
         <section className="bg-white border border-slate-100 rounded-[2.5rem] p-8 lg:p-10 shadow-sm">
           <h2 className="text-lg font-bold text-slate-800 mb-8">Progress Summary</h2>
           

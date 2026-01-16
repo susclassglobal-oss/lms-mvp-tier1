@@ -13,7 +13,6 @@ function NotificationBell() {
 
   const token = localStorage.getItem('token');
 
-  // Fetch unread count
   const fetchUnreadCount = async () => {
     if (!token) return;
     try {
@@ -29,7 +28,6 @@ function NotificationBell() {
     }
   };
 
-  // Fetch notifications
   const fetchNotifications = async () => {
     if (!token) return;
     setLoading(true);
@@ -48,7 +46,6 @@ function NotificationBell() {
     }
   };
 
-  // Mark notification as read
   const markAsRead = async (id) => {
     try {
       await fetch(`${API_URL}/api/notifications/${id}/read`, {
@@ -64,7 +61,6 @@ function NotificationBell() {
     }
   };
 
-  // Mark all as read
   const markAllAsRead = async () => {
     try {
       await fetch(`${API_URL}/api/notifications/read-all`, {
@@ -78,7 +74,6 @@ function NotificationBell() {
     }
   };
 
-  // Handle notification click
   const handleNotificationClick = (notification) => {
     if (!notification.is_read) {
       markAsRead(notification.id);
@@ -89,21 +84,18 @@ function NotificationBell() {
     }
   };
 
-  // Poll for new notifications
   useEffect(() => {
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, 30000); // Every 30 seconds
     return () => clearInterval(interval);
   }, [token]);
 
-  // Fetch notifications when dropdown opens
   useEffect(() => {
     if (isOpen) {
       fetchNotifications();
     }
   }, [isOpen]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -114,7 +106,6 @@ function NotificationBell() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Format relative time
   const formatTime = (dateString) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -127,7 +118,6 @@ function NotificationBell() {
     return date.toLocaleDateString();
   };
 
-  // Get icon based on event type
   const getIcon = (eventCode) => {
     switch (eventCode) {
       case 'MODULE_PUBLISHED':
@@ -149,7 +139,6 @@ function NotificationBell() {
 
   return (
     <div className="relative" ref={dropdownRef}>
-      {/* Bell Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors"
@@ -158,19 +147,14 @@ function NotificationBell() {
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
-        
-        {/* Unread Badge */}
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
-
-      {/* Dropdown */}
       {isOpen && (
         <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden z-50">
-          {/* Header */}
           <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
             <h3 className="font-semibold text-slate-800">Notifications</h3>
             {unreadCount > 0 && (
@@ -182,8 +166,6 @@ function NotificationBell() {
               </button>
             )}
           </div>
-
-          {/* Notification List */}
           <div className="max-h-96 overflow-y-auto">
             {loading ? (
               <div className="p-4 text-center text-slate-500">
@@ -205,12 +187,9 @@ function NotificationBell() {
                     !notification.is_read ? 'bg-emerald-50/50' : ''
                   }`}
                 >
-                  {/* Icon */}
                   <span className="text-xl flex-shrink-0 mt-0.5">
                     {getIcon(notification.event_code)}
                   </span>
-                  
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm ${!notification.is_read ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
                       {notification.title}
@@ -222,8 +201,6 @@ function NotificationBell() {
                       {formatTime(notification.created_at)}
                     </p>
                   </div>
-                  
-                  {/* Unread dot */}
                   {!notification.is_read && (
                     <span className="w-2 h-2 bg-emerald-500 rounded-full flex-shrink-0 mt-2"></span>
                   )}

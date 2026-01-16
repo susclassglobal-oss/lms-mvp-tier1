@@ -15,14 +15,12 @@ const request = require('supertest');
 const Database = require('better-sqlite3');
 const jwt = require('jsonwebtoken');
 
-// Mock nodemailer
 jest.mock('nodemailer', () => ({
   createTransport: jest.fn(() => ({
     sendMail: jest.fn().mockResolvedValue({ messageId: 'test-message-id' })
   }))
 }));
 
-// SQLite in-memory DB setup
 let db;
 let app;
 const JWT_SECRET = 'test-secret-key';
@@ -31,22 +29,18 @@ let studentToken = '';
 let testTeacherId = 1;
 let testStudentId = 1;
 
-// Helper to generate JWT tokens for testing
 const generateTestToken = (payload) => {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
 };
 
 beforeAll(async () => {
-  // Set test environment variables
   process.env.JWT_SECRET = JWT_SECRET;
   process.env.ADMIN_EMAIL = 'admin@test.com';
   process.env.ADMIN_PASSWORD = 'admin123';
   process.env.NODE_ENV = 'test';
   
-  // Create in-memory SQLite database
   db = new Database(':memory:');
   
-  // Create schema for in-app notifications and related tables
   db.exec(`
     -- Teachers table
     CREATE TABLE teachers (
@@ -145,26 +139,21 @@ beforeAll(async () => {
     CREATE INDEX idx_inapp_unread ON in_app_notifications(user_id, user_type, is_read);
   `);
 
-  // Insert test data
   db.prepare(`INSERT INTO teachers (id, name, email, staff_id, dept) VALUES (?, ?, ?, ?, ?)`)
     .run(1, 'Test Teacher', 'teacher@test.com', 'T001', 'CSE');
   
   db.prepare(`INSERT INTO students (id, name, email, reg_no, class_dept, section) VALUES (?, ?, ?, ?, ?, ?)`)
     .run(1, 'Test Student', 'student@test.com', 'S001', 'CSE', 'A');
 
-  // Generate tokens
   teacherToken = generateTestToken({ id: testTeacherId, email: 'teacher@test.com', role: 'teacher' });
   studentToken = generateTestToken({ id: testStudentId, email: 'student@test.com', role: 'student' });
 
-  // Mock the pool for pg
   jest.doMock('pg', () => ({
     Pool: jest.fn(() => ({
       query: jest.fn((sql, params) => {
         try {
-          // Convert PostgreSQL parameterized queries to SQLite format
           let sqliteSql = sql.replace(/\$(\d+)/g, '?');
           
-          // Handle some PostgreSQL specific syntax
           sqliteSql = sqliteSql.replace(/RETURNING \*/gi, '');
           sqliteSql = sqliteSql.replace(/RETURNING id/gi, '');
           sqliteSql = sqliteSql.replace(/::text/gi, '');
@@ -201,7 +190,6 @@ beforeAll(async () => {
     }))
   }));
 
-  // Clear module cache and re-require app
   jest.resetModules();
   app = require('../server');
 });
@@ -212,9 +200,6 @@ afterAll(() => {
 
 describe('In-App Notification System Tests', () => {
 
-  // ============================================================
-  // API ENDPOINT TESTS
-  // ============================================================
 
   describe('GET /api/notifications/inbox', () => {
     
@@ -268,7 +253,6 @@ describe('In-App Notification System Tests', () => {
     let testNotificationId;
 
     beforeAll(() => {
-      // Insert a test notification directly into SQLite
       const result = db.prepare(
         `INSERT INTO in_app_notifications (user_id, user_type, event_code, title, message, is_read)
          VALUES (?, ?, ?, ?, ?, ?)`
@@ -281,7 +265,6 @@ describe('In-App Notification System Tests', () => {
         .patch(`/api/notifications/${testNotificationId}/read`)
         .set('Authorization', `Bearer ${studentToken}`);
       
-      // Accept either 200 or behavior based on mock
       expect([200, 404]).toContain(res.status);
     });
 
@@ -297,7 +280,6 @@ describe('In-App Notification System Tests', () => {
   describe('PATCH /api/notifications/read-all', () => {
     
     beforeAll(() => {
-      // Create multiple unread notifications
       db.prepare(
         `INSERT INTO in_app_notifications (user_id, user_type, event_code, title, message, is_read)
          VALUES (?, ?, ?, ?, ?, ?)`
@@ -320,13 +302,9 @@ describe('In-App Notification System Tests', () => {
   });
 });
 
-// ============================================================
-// IN-APP NOTIFICATION TEMPLATES UNIT TESTS
-// ============================================================
 
 describe('In-App Notification Templates', () => {
   
-  // Test the template generation logic (unit test style)
   const inAppTemplates = {
     MODULE_PUBLISHED: {
       title: 'New Module Available',
@@ -410,11 +388,8 @@ describe('In-App Notification Templates', () => {
   });
 });
 
-// ============================================================
-// DASHBOARD DATA TESTS
-// ============================================================
 
-describe('📱 Student Dashboard Data Tests', () => {
+describe(' Student Dashboard Data Tests', () => {
 
   describe('GET /api/student/profile', () => {
     it('should return 200 or 404 for student profile', async () => {
@@ -422,7 +397,6 @@ describe('📱 Student Dashboard Data Tests', () => {
         .get('/api/student/profile')
         .set('Authorization', `Bearer ${studentToken}`);
       
-      // May be 404 if test student doesn't exist in mock, but should not be 500
       expect([200, 404]).toContain(res.status);
     });
 
@@ -468,11 +442,8 @@ describe('📱 Student Dashboard Data Tests', () => {
   });
 });
 
-// ============================================================
-// RBAC TESTS FOR NOTIFICATION ENDPOINTS
-// ============================================================
 
-describe('🔐 RBAC Tests for Notification Endpoints', () => {
+describe(' RBAC Tests for Notification Endpoints', () => {
   
   it('should allow student to access their notifications inbox', async () => {
     const res = await request(app)
@@ -507,13 +478,9 @@ describe('🔐 RBAC Tests for Notification Endpoints', () => {
   });
 });
 
-// ============================================================
-// NOTIFICATION BELL COMPONENT LOGIC TESTS
-// ============================================================
 
 describe('NotificationBell Component Logic', () => {
   
-  // Test the relative time formatting logic used in the component
   const formatRelativeTime = (dateString) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -546,7 +513,6 @@ describe('NotificationBell Component Logic', () => {
     expect(formatRelativeTime(threeDaysAgo)).toBe('3d ago');
   });
 
-  // Test event code to icon mapping logic
   const getEventIcon = (eventCode) => {
     const icons = {
       MODULE_PUBLISHED: 'M',

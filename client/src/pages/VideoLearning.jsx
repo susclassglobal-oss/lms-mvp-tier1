@@ -32,8 +32,6 @@ function VideoLearning() {
   return (
     <div className="min-h-screen bg-[#fdfdfd] font-sans text-slate-800 p-8 lg:p-12">
       <div className="max-w-5xl mx-auto">
-        
-        {/* TOP NAVIGATION */}
         <div className="flex items-center justify-between mb-8">
           <button 
             onClick={() => navigate('/courses')}
@@ -50,8 +48,6 @@ function VideoLearning() {
             <span className="text-xs font-bold text-emerald-600">{Math.round(progressPercent)}% Complete</span>
           </div>
         </div>
-
-        {/* PROGRESS BAR */}
         <div className="w-full h-1 bg-slate-100 rounded-full mb-12 overflow-hidden">
           <div 
             className="h-full bg-emerald-500 transition-all duration-700 ease-in-out"
@@ -60,8 +56,6 @@ function VideoLearning() {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-12">
-          
-          {/* MAIN VIDEO AREA (3 Columns) */}
           <div className="xl:col-span-3 space-y-8">
             <div className="aspect-video bg-slate-900 rounded-3xl overflow-hidden shadow-2xl shadow-slate-200 border border-slate-200">
               <iframe
@@ -81,8 +75,6 @@ function VideoLearning() {
               </p>
             </div>
           </div>
-
-          {/* SIDEBAR RESOURCES & NAV (1 Column) */}
           <div className="space-y-8">
             <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Resources</h3>
@@ -95,22 +87,20 @@ function VideoLearning() {
                       rel="noreferrer" 
                       className="text-sm font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-2 group"
                     >
-                      <span className="text-lg opacity-50 group-hover:opacity-100 transition-opacity">🔗</span>
+                      <span className="text-lg opacity-50 group-hover:opacity-100 transition-opacity"></span>
                       {res.name}
                     </a>
                   </li>
                 ))}
               </ul>
             </div>
-
-            {/* QUICK NAVIGATION */}
             <div className="flex flex-col gap-3">
               <button
                 disabled={currentIndex === videos.length - 1}
                 onClick={() => setCurrentIndex(currentIndex + 1)}
                 className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
               >
-                {currentIndex === videos.length - 1 ? 'Course Finished ✨' : 'Next Lesson →'}
+                {currentIndex === videos.length - 1 ? 'Course Finished ' : 'Next Lesson →'}
               </button>
               
               <button
@@ -121,8 +111,6 @@ function VideoLearning() {
                 ← Previous
               </button>
             </div>
-
-            {/* WELLBEING WIDGET */}
             <div className="p-6 rounded-2xl bg-amber-50/50 border border-amber-100">
                <h4 className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-2">Wellbeing Tip</h4>
                <p className="text-xs text-amber-800/70 italic leading-relaxed">

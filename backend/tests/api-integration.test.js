@@ -1,12 +1,9 @@
-// Comprehensive API test suite for merged features
-// Tests OTP login, notifications, modules, tests without hitting live DB
 
 const request = require('supertest');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// Mock setup
 jest.mock('nodemailer', () => ({
   createTransport: jest.fn(() => ({
     sendMail: jest.fn().mockResolvedValue({ messageId: 'test-message-id' })
@@ -23,7 +20,6 @@ const mockNotificationService = {
 
 jest.mock('../notificationService', () => mockNotificationService);
 
-// SQLite in-memory DB setup
 let db;
 let app;
 const JWT_SECRET = 'test-secret-key';
@@ -31,16 +27,13 @@ const ADMIN_EMAIL = 'admin@test.com';
 const ADMIN_PASSWORD = 'admin123';
 
 beforeAll(async () => {
-  // Set test environment variables
   process.env.JWT_SECRET = JWT_SECRET;
   process.env.ADMIN_EMAIL = ADMIN_EMAIL;
   process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
   process.env.NODE_ENV = 'test';
   
-  // Create in-memory SQLite database
   db = new Database(':memory:');
   
-  // Create schema
   db.exec(`
     CREATE TABLE teachers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -212,7 +205,6 @@ beforeAll(async () => {
     GROUP BY date(nl.created_at), nl.event_code, ne.event_name, ne.category;
   `);
 
-  // Seed notification events
   const notificationEvents = [
     ['ACCOUNT_CREATED', 'Account Created', 'both', 'system'],
     ['MODULE_PUBLISHED', 'Module Published', 'student', 'module'],
@@ -224,17 +216,13 @@ beforeAll(async () => {
   const insertEvent = db.prepare('INSERT INTO notification_events (event_code, event_name, recipient_role, category) VALUES (?, ?, ?, ?)');
   notificationEvents.forEach(event => insertEvent.run(...event));
   
-  // Mock pg Pool to use SQLite
   const mockPool = {
     query: async (query, params = []) => {
       try {
-        // Handle track_module_access function call before parameter conversion
         if (query.includes('track_module_access')) {
-          // Just return success, no actual tracking in test DB
           return { rows: [{ track_module_access: 1 }], rowCount: 1 };
         }
         
-        // Convert PostgreSQL syntax to SQLite
         let sqliteQuery = query
           .replace(/\$(\d+)/g, '?')
           .replace(/RETURNING \*/g, '')
@@ -245,7 +233,6 @@ beforeAll(async () => {
           .replace(/::jsonb/g, '')
           .replace(/::json/g, '');
 
-        // Convert Date objects and objects to strings for SQLite; convert booleans to 0/1
         const sqliteParams = params.map(p => {
           if (p instanceof Date) return p.toISOString();
           if (typeof p === 'boolean') return p ? 1 : 0;
@@ -261,7 +248,6 @@ beforeAll(async () => {
           const stmt = db.prepare(sqliteQuery);
           const info = stmt.run(...sqliteParams);
           
-          // Handle RETURNING clause - fetch the inserted row
           if (info.lastInsertRowid > 0) {
             const tableMatch = sqliteQuery.match(/INSERT INTO (\w+)/i);
             if (tableMatch) {
@@ -272,12 +258,10 @@ beforeAll(async () => {
             }
           }
           
-          // For INSERT with ON CONFLICT (upsert), try to find the row
           if (sqliteQuery.includes('ON CONFLICT')) {
             const tableMatch = sqliteQuery.match(/INSERT INTO (\w+)/i);
             if (tableMatch) {
               const tableName = tableMatch[1];
-              // For notification_preferences, find by unique constraint
               if (tableName === 'notification_preferences' && sqliteParams.length >= 3) {
                 const selectStmt = db.prepare(`SELECT * FROM ${tableName} WHERE user_id = ? AND user_type = ? AND event_code = ?`);
                 const row = selectStmt.get(sqliteParams[0], sqliteParams[1], sqliteParams[2]);
@@ -305,12 +289,10 @@ beforeAll(async () => {
     end: async () => {}
   };
   
-  // Mock Pool constructor
   jest.mock('pg', () => ({
     Pool: jest.fn(() => mockPool)
   }));
   
-  // Now require the app (after mocks are set up)
   delete require.cache[require.resolve('../server.js')];
   app = require('../server.js');
 });
@@ -355,8 +337,6 @@ describe('Authentication & OTP', () => {
   });
   
   test.skip('POST /api/login - triggers OTP and email (SQLite Date limitation)', async () => {
-    // SKIPPED: SQLite can't bind JavaScript Date objects for otp_expiry
-    // This works correctly in production with PostgreSQL
     const nodemailer = require('nodemailer');
     const mockSendMail = jest.fn().mockResolvedValue({ messageId: 'test-id' });
     nodemailer.createTransport.mockReturnValue({ sendMail: mockSendMail });
@@ -369,14 +349,12 @@ describe('Authentication & OTP', () => {
     expect(res.body.mfaRequired).toBe(true);
     expect(mockSendMail).toHaveBeenCalled();
     
-    // Verify OTP stored in DB
     const student = db.prepare('SELECT otp_code FROM students WHERE email = ?').get(testStudent.email);
     expect(student.otp_code).toBeTruthy();
     expect(student.otp_code).toMatch(/^\d{6}$/);
   });
   
   test('POST /api/verify-otp - valid OTP returns token', async () => {
-    // Set a known OTP
     const otp = '123456';
     const expiry = new Date(Date.now() + 5 * 60000).toISOString();
     db.prepare('UPDATE students SET otp_code = ?, otp_expiry = ? WHERE email = ?')
@@ -390,7 +368,6 @@ describe('Authentication & OTP', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.token).toBeDefined();
     
-    // Verify OTP cleared
     const student = db.prepare('SELECT otp_code FROM students WHERE email = ?').get(testStudent.email);
     expect(student.otp_code).toBeNull();
   });
@@ -517,8 +494,6 @@ describe('Module Management', () => {
   });
   
   test.skip('GET /api/student/module/:moduleId - returns module steps (test data dependency)', async () => {
-    // SKIPPED: Module ID from upload test not properly captured in test flow
-    // Endpoint works correctly in production - this is a test environment limitation
     const res = await request(app)
       .get(`/api/student/module/${moduleId}`)
       .set('Authorization', `Bearer ${studentToken}`);
@@ -598,7 +573,6 @@ describe('Test Management & Submissions', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.submission).toBeDefined();
     
-    // Should send TEST_SUBMITTED to teacher and GRADE_POSTED to student
     expect(mockNotificationService.sendEmail).toHaveBeenCalledTimes(2);
     expect(mockNotificationService.sendEmail).toHaveBeenCalledWith(
       'TEST_SUBMITTED',
@@ -638,7 +612,6 @@ describe('Code Submission', () => {
   });
   
   test('POST /api/student/submit-code - handles valid submission', async () => {
-    // Mock fetch for Piston API
     global.fetch = jest.fn(() =>
       Promise.resolve({
         json: () => Promise.resolve({ run: { stdout: '4\n' } })
@@ -671,7 +644,6 @@ describe('Notification API Endpoints', () => {
     studentToken = jwt.sign({ id: student.id, email: student.email, role: 'student' }, JWT_SECRET);
     teacherToken = jwt.sign({ id: teacher.id, email: teacher.email, role: 'teacher' }, JWT_SECRET);
     
-    // Seed some preferences
     db.prepare(`
       INSERT OR IGNORE INTO notification_preferences (user_id, user_type, event_code, email_enabled)
       VALUES (?, 'student', 'MODULE_PUBLISHED', 1)
@@ -771,7 +743,6 @@ describe('Password Change - Student', () => {
   let studentToken, testStudentId;
   
   beforeAll(async () => {
-    // Create a student with known password for password change tests
     const hashedPass = await bcrypt.hash('oldpassword123', 10);
     const insertStudent = db.prepare('INSERT INTO students (name, email, password, reg_no, class_dept, section) VALUES (?, ?, ?, ?, ?, ?)');
     const info = insertStudent.run('Password Test Student', 'pwstudent@test.com', hashedPass, 'PWD001', 'CS', 'A');
@@ -835,7 +806,6 @@ describe('Password Change - Student', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     
-    // Verify password was actually changed in DB
     const student = db.prepare('SELECT password FROM students WHERE id = ?').get(testStudentId);
     const passwordMatches = await bcrypt.compare('newpassword123', student.password);
     expect(passwordMatches).toBe(true);
@@ -889,7 +859,6 @@ describe('Admin Password Reset', () => {
   beforeAll(async () => {
     adminToken = jwt.sign({ id: 0, email: ADMIN_EMAIL, role: 'admin' }, JWT_SECRET);
     
-    // Create target users for password reset
     const hashedPass = await bcrypt.hash('originalpass', 10);
     const studentInfo = db.prepare('INSERT INTO students (name, email, password, reg_no, class_dept, section) VALUES (?, ?, ?, ?, ?, ?)')
       .run('Reset Target Student', 'resetstudent@test.com', hashedPass, 'RST001', 'CS', 'A');
@@ -948,7 +917,6 @@ describe('Admin Password Reset', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     
-    // Verify password was changed
     const student = db.prepare('SELECT password FROM students WHERE id = ?').get(targetStudentId);
     const matches = await bcrypt.compare('adminreset123', student.password);
     expect(matches).toBe(true);

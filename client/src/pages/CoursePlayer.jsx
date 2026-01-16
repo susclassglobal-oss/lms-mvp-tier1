@@ -6,19 +6,16 @@ function CoursePlayer() {
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
 
-  // Module & Problem State
   const [currentStep, setCurrentStep] = useState(null);
   const [dbTestCases, setDbTestCases] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Coding Workspace State
   const [language, setLanguage] = useState('java');
   const [code, setCode] = useState('');
   const [userInput, setUserInput] = useState('');
   const [output, setOutput] = useState('Terminal ready...');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Piston API Language Mapping
   const langMap = {
     java: { name: "java", version: "15.0.2" },
     python: { name: "python", version: "3.10.0" },
@@ -33,13 +30,11 @@ function CoursePlayer() {
       const data = await res.json();
       
       if (res.ok) {
-        // Find the coding challenge in the steps array
         const codingChallenge = data.find(s => s.step_type === 'coding');
         if (codingChallenge) {
           setCurrentStep(codingChallenge);
           const mData = codingChallenge.mcq_data || {};
           setDbTestCases(mData.testCases || []);
-          // Set starter code if teacher provided it, else blank
           setCode(mData.starterCode?.[language] || "// Write your solution here");
         }
       }
@@ -85,7 +80,7 @@ function CoursePlayer() {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`🏆 MISSION ACCOMPLISHED\nScore: ${data.score}%\nTests Passed: ${data.passed}/${data.total}`);
+        alert(` MISSION ACCOMPLISHED\nScore: ${data.score}%\nTests Passed: ${data.passed}/${data.total}`);
         navigate('/dashboard');
       }
     } catch (err) { 
@@ -98,18 +93,13 @@ function CoursePlayer() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] p-6 font-sans">
-      {/* 1. TOP HEADER: DYNAMIC QUESTION FETCHED FROM DB */}
       <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 mb-6">
         <h2 className="text-emerald-500 text-[10px] font-black uppercase tracking-[0.3em] mb-2">Challenge Objective</h2>
         <h1 className="text-slate-500 text-sm font-medium leading-relaxed max-w-5xl">
           {currentStep?.mcq_data?.description || "No description provided for this task."}
         </h1>
       </div>
-
-      {/* 2. MAIN WORKSPACE */}
       <div className="grid grid-cols-12 gap-6 h-[65vh]">
-        
-        {/* LEFT: TEST CASES (Fetched from DB) */}
         <div className="col-span-3 space-y-4 overflow-y-auto">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Public Test Cases</p>
           {dbTestCases.filter(tc => !tc.isHidden).map((tc, i) => (
@@ -131,12 +121,10 @@ function CoursePlayer() {
           ))}
           {dbTestCases.some(tc => tc.isHidden) && (
             <div className="bg-slate-900 p-4 rounded-3xl text-center">
-              <p className="text-[10px] font-bold text-slate-400">🔒 {dbTestCases.filter(tc => tc.isHidden).length} Hidden Tests Locked</p>
+              <p className="text-[10px] font-bold text-slate-400"> {dbTestCases.filter(tc => tc.isHidden).length} Hidden Tests Locked</p>
             </div>
           )}
         </div>
-
-        {/* MIDDLE: EDITOR */}
         <div className="col-span-6 flex flex-col gap-4">
           <div className="flex-[3] bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden flex flex-col">
             <div className="px-6 py-4 bg-slate-50 border-b flex justify-between items-center">
@@ -165,8 +153,6 @@ function CoursePlayer() {
             />
           </div>
         </div>
-
-        {/* RIGHT: TERMINAL & ACTIONS */}
         <div className="col-span-3 flex flex-col gap-4">
           <button onClick={runTest} className="w-full py-4 bg-slate-200 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-300 transition-all">
             Run Code

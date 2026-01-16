@@ -11,7 +11,6 @@ import AdminDashboard from './pages/AdminDashboard'
 import TeacherDashboard from './pages/TeacherDashboard'
 import CoursePlayer from './pages/CoursePlayer'
 
-// --- THE BOUNCER (Protected Route Logic) ---
 const ProtectedRoute = ({ children, allowedRole }) => {
   const token = localStorage.getItem('token');
   const userRole = localStorage.getItem('user_role');
@@ -30,10 +29,7 @@ const ProtectedRoute = ({ children, allowedRole }) => {
 function App() {
   return (
     <Routes>
-      {/* PUBLIC ROUTE */}
       <Route path="/" element={<Login />} />
-
-      {/* ADMIN ONLY */}
       <Route 
         path="/admin-dashboard" 
         element={
@@ -42,8 +38,6 @@ function App() {
           </ProtectedRoute>
         } 
       />
-
-      {/* TEACHER ONLY */}
       <Route 
         path="/teacher-dashboard" 
         element={
@@ -52,8 +46,6 @@ function App() {
           </ProtectedRoute>
         } 
       />
-
-      {/* STUDENT ROUTES (Protected) */}
       <Route 
         path="/dashboard" 
         element={
@@ -62,15 +54,11 @@ function App() {
           </ProtectedRoute>
         } 
       />
-      
-      {/* General Student Protected Routes */}
       <Route path="/courses" element={<ProtectedRoute allowedRole="student"><Courses /></ProtectedRoute>} />
       <Route path="/progress" element={<ProtectedRoute allowedRole="student"><ProgressTracker /></ProtectedRoute>} />
       <Route path="/test" element={<ProtectedRoute allowedRole="student"><TestKnowledge /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute allowedRole="student"><StudentProfile /></ProtectedRoute>} />
       <Route path="/courses/code" element={<ProtectedRoute allowedRole="student"><CodingWorkbench /></ProtectedRoute>} />
-      
-      {/* CRITICAL FIX: The Course Player must be protected so only logged-in students see it */}
       <Route 
         path="/learning/:moduleId" 
         element={
@@ -81,8 +69,6 @@ function App() {
       />
       
       <Route path="/courses/video" element={<ProtectedRoute allowedRole="student"><VideoLearning /></ProtectedRoute>} />
-
-      {/* CATCH-ALL: Redirect unknown URLs to Login */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

@@ -14,17 +14,13 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// --- HEALTH CHECK ENDPOINT ---
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// --- CONFIGURATION ---
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your_new_secure_secret_key';
 
-// --- DATABASE CONNECTION ---
-// Auto-detect SSL: Enable for cloud databases (Neon, AWS), disable for local Docker
 const dbUrl = process.env.DATABASE_URL;
 const useSSL = dbUrl?.includes('neon.tech') || 
                dbUrl?.includes('amazonaws.com') || 
@@ -35,10 +31,8 @@ const pool = new Pool({
   ssl: useSSL ? { rejectUnauthorized: false } : false
 });
 
-// Initialize notification service
 notificationService.initializeNotificationService(pool);
 
-// --- CLOUDINARY CONFIGURATION ---
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -48,7 +42,6 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => {
-    // Determine if it's a video or image
     const isVideo = file.mimetype.startsWith('video/');
     
     return {
@@ -68,7 +61,6 @@ const upload = multer({
   }
 });
 
-// --- MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -97,7 +89,6 @@ const studentOnly = (req, res, next) => {
   next();
 };
 
-// Combined role check middleware
 const allowRoles = (...roles) => (req, res, next) => {
   if (!roles.includes(req.user.role)) {
     return res.status(403).json({ error: `Forbidden: ${roles.join(' or ')} Only` });
@@ -105,7 +96,6 @@ const allowRoles = (...roles) => (req, res, next) => {
   next();
 };
 
-// --- ROUTES: AUTHENTICATION ---
 
 
 const transporter = nodemailer.createTransport({
@@ -116,7 +106,6 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// 1. Admin Login (Env based)
 app.post('/api/admin/login', (req, res) => {
   const { email, password } = req.body;
   if (email === process.env.ADMIN_EMAIL && password === process.env.ADMIN_PASSWORD) {
@@ -127,7 +116,6 @@ app.post('/api/admin/login', (req, res) => {
   }
 });
 
-// 2. Universal Login (Student/Teacher)
 app.post('/api/login', async (req, res) => {
     const { email, password, role } = req.body;
     const activeRole = role.toLowerCase();
@@ -149,7 +137,6 @@ app.post('/api/login', async (req, res) => {
                     [otp, otpExpiry, user.id]
                 );
 
-                // --- TWEAKED: Sending real email instead of console.log ---
                 const mailOptions = {
                     from: 'susclass.global@gmail.com',
                     to: email, // Sends to the email the user just typed in the login form
@@ -166,7 +153,6 @@ app.post('/api/login', async (req, res) => {
 
                 await transporter.sendMail(mailOptions);
                 
-                // Return same response to keep your frontend working perfectly
                 res.json({ success: true, mfaRequired: true, email: user.email });
             } else {
                 res.status(401).json({ success: false, message: "Incorrect Password" });
@@ -179,15 +165,11 @@ app.post('/api/login', async (req, res) => {
         res.status(500).json({ error: "Database or Mailer error" });
     }
 });
-// 3. Verify OTP - Step 2: The Final Authentication
-// 3. Verify OTP - Step 2: The Final Authentication
-// This must be a separate block from the login block!
 app.post('/api/verify-otp', async (req, res) => {
     const { email, otp, role } = req.body;
     const table = role.toLowerCase() === 'student' ? 'students' : 'teachers';
 
     try {
-        // Look for a user where email and otp match, and time has not run out
         const result = await pool.query(
             `SELECT * FROM ${table} WHERE LOWER(email) = LOWER($1) AND otp_code = $2 AND otp_expiry > NOW()`,
             [email, otp]
@@ -196,13 +178,11 @@ app.post('/api/verify-otp', async (req, res) => {
         if (result.rows.length > 0) {
             const user = result.rows[0];
 
-            // SECURITY: Clear OTP immediately so it can't be used again
             await pool.query(
                 `UPDATE ${table} SET otp_code = NULL, otp_expiry = NULL WHERE id = $1`, 
                 [user.id]
             );
 
-            // Correct code! Now generate the JWT Token for the frontend
             const token = jwt.sign(
                 { id: user.id, email: user.email, role: role.toLowerCase() }, 
                 JWT_SECRET, 
@@ -216,7 +196,6 @@ app.post('/api/verify-otp', async (req, res) => {
                 user: { ...user, role: role.toLowerCase() } 
             });
         } else {
-            // Either the code is wrong, or it expired (5 min limit)
             res.status(401).json({ success: false, message: "Invalid or Expired OTP" });
         }
     } catch (err) {
@@ -225,14 +204,11 @@ app.post('/api/verify-otp', async (req, res) => {
     }
 });
 
-// --- ROUTES: ADMIN MANAGEMENT ---
 
-// 3. Register Teacher
 app.post('/api/admin/register-teacher', authenticateToken, adminOnly, async (req, res) => {
   const { name, email, password, staff_id, dept, media } = req.body;
   try {
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
-    // Note: We pass objects directly; pg driver handles JSON conversion for JSONB columns
     const query = `INSERT INTO teachers (name, email, password, staff_id, dept, media, allocated_sections) 
                    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
     const values = [name, email, hashed, staff_id, dept, media || {}, []];
@@ -240,7 +216,6 @@ app.post('/api/admin/register-teacher', authenticateToken, adminOnly, async (req
     const result = await pool.query(query, values);
     const teacherId = result.rows[0].id;
     
-    // NOTIFICATION: Welcome email
     try {
       const teacher = {
         id: teacherId,
@@ -271,7 +246,6 @@ app.post('/api/admin/register-teacher', authenticateToken, adminOnly, async (req
   }
 });
 
-// 4. Register Student
 app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req, res) => {
   const { name, email, password, reg_no, class_dept, section, media } = req.body;
   
@@ -284,13 +258,11 @@ app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req
   console.log("Media:", media);
   
   try {
-    // Validate required fields
     if (!name || !email || !password) {
-      console.log("❌ Missing required fields");
+      console.log(" Missing required fields");
       return res.status(400).json({ error: "Name, email, and password are required" });
     }
     
-    // Validate email format
     const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
     if (!emailRegex.test(email)) {
       console.log("[ERR] Invalid email format:", email);
@@ -309,7 +281,6 @@ app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req
     const studentId = result.rows[0].id;
     console.log("[OK] Student registered successfully!");
     
-    // NOTIFICATION: Welcome email
     try {
       const student = {
         id: studentId,
@@ -341,11 +312,9 @@ app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req
     console.error("Error Code:", err.code);
     console.error("Error Detail:", err.detail);
     
-    // Check for duplicate email
     if (err.code === '23505') {
       return res.status(400).json({ error: "Email already exists. Please use a different email address." });
     }
-    // Check for email format constraint
     if (err.message.includes('chk_email_format')) {
       return res.status(400).json({ error: "Invalid email format. Please enter a complete email address." });
     }
@@ -353,7 +322,6 @@ app.post('/api/admin/register-student', authenticateToken, adminOnly, async (req
   }
 });
 
-// 5. Teacher List (For Allocation)
 app.get('/api/teachers', authenticateToken, adminOnly, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, name, staff_id, dept, allocated_sections FROM teachers ORDER BY name ASC');
@@ -363,7 +331,6 @@ app.get('/api/teachers', authenticateToken, adminOnly, async (req, res) => {
   }
 });
 
-// 6. Update Allocation (Old - keeping for backward compatibility)
 app.put('/api/teachers/:id/allocate', authenticateToken, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { sections } = req.body; // Expects an array: ["CSE A", "ECE B"]
@@ -375,7 +342,6 @@ app.put('/api/teachers/:id/allocate', authenticateToken, adminOnly, async (req, 
   }
 });
 
-// 7a. Admin: Update Teacher
 app.put('/api/admin/teacher/:id', authenticateToken, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { name, email, staff_id, dept } = req.body;
@@ -390,7 +356,6 @@ app.put('/api/admin/teacher/:id', authenticateToken, adminOnly, async (req, res)
   }
 });
 
-// 7b. Admin: Delete Teacher
 app.delete('/api/admin/teacher/:id', authenticateToken, adminOnly, async (req, res) => {
   const { id } = req.params;
   try {
@@ -401,7 +366,6 @@ app.delete('/api/admin/teacher/:id', authenticateToken, adminOnly, async (req, r
   }
 });
 
-// 7c. Admin: Update Student
 app.put('/api/admin/student/:id', authenticateToken, adminOnly, async (req, res) => {
   const { id } = req.params;
   const { name, email, reg_no, class_dept, section } = req.body;
@@ -416,7 +380,6 @@ app.put('/api/admin/student/:id', authenticateToken, adminOnly, async (req, res)
   }
 });
 
-// 7d. Admin: Delete Student
 app.delete('/api/admin/student/:id', authenticateToken, adminOnly, async (req, res) => {
   const { id } = req.params;
   try {
@@ -427,7 +390,6 @@ app.delete('/api/admin/student/:id', authenticateToken, adminOnly, async (req, r
   }
 });
 
-// 7e. Admin: Get All Students
 app.get('/api/admin/students', authenticateToken, adminOnly, async (req, res) => {
   try {
     const result = await pool.query(
@@ -439,7 +401,6 @@ app.get('/api/admin/students', authenticateToken, adminOnly, async (req, res) =>
   }
 });
 
-// 7f. Admin: Get All Teachers
 app.get('/api/admin/teachers', authenticateToken, adminOnly, async (req, res) => {
   try {
     const result = await pool.query(
@@ -451,17 +412,14 @@ app.get('/api/admin/teachers', authenticateToken, adminOnly, async (req, res) =>
   }
 });
 
-// 7g. Admin: Allocate Teacher to Students (Many-to-Many)
 app.post('/api/admin/allocate', authenticateToken, adminOnly, async (req, res) => {
   const { teacher_id, student_ids, subject } = req.body;
   try {
-    // Delete existing allocations for this teacher and subject
     await pool.query(
       'DELETE FROM teacher_student_allocations WHERE teacher_id = $1 AND subject = $2',
       [teacher_id, subject]
     );
     
-    // Insert new allocations
     for (const student_id of student_ids) {
       await pool.query(
         'INSERT INTO teacher_student_allocations (teacher_id, student_id, subject) VALUES ($1, $2, $3) ON CONFLICT (teacher_id, student_id, subject) DO NOTHING',
@@ -475,7 +433,6 @@ app.post('/api/admin/allocate', authenticateToken, adminOnly, async (req, res) =
   }
 });
 
-// 7h. Admin: Get Teacher's Students
 app.get('/api/admin/teacher/:id/students', authenticateToken, adminOnly, async (req, res) => {
   const { id } = req.params;
   try {
@@ -489,7 +446,6 @@ app.get('/api/admin/teacher/:id/students', authenticateToken, adminOnly, async (
   }
 });
 
-// 7i. Admin: Get Student's Teachers
 app.get('/api/admin/student/:id/teachers', authenticateToken, adminOnly, async (req, res) => {
   const { id } = req.params;
   try {
@@ -504,10 +460,8 @@ app.get('/api/admin/student/:id/teachers', authenticateToken, adminOnly, async (
 });
 
 
-// 8. Fetch Teacher Profile (for Dashboard)
 app.get('/api/teacher/me', authenticateToken, teacherOnly, async (req, res) => {
   try {
-    // req.user.id comes from the decoded JWT token
     const result = await pool.query(
       'SELECT id, name, email, staff_id, dept, media, allocated_sections FROM teachers WHERE id = $1', 
       [req.user.id]
@@ -520,7 +474,6 @@ app.get('/api/teacher/me', authenticateToken, teacherOnly, async (req, res) => {
   }
 });
 
-// 8b. Teacher: Get My Allocated Students
 app.get('/api/teacher/my-students', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const teacher_id = req.user.id;
@@ -536,17 +489,14 @@ app.get('/api/teacher/my-students', authenticateToken, teacherOnly, async (req, 
   }
 });
 
-// 9. Fetch Students for a specific section
 app.get('/api/teacher/students/:section', authenticateToken, teacherOnly, async (req, res) => {
   const fullSectionString = req.params.section; // e.g., "ECE A" or "ece a"
 
   try {
-    // 1. Split "ECE A" into ["ECE", "A"]
     const parts = fullSectionString.trim().split(/\s+/); 
     const deptPart = parts[0];    // "ECE"
     const sectionPart = parts[1]; // "A"
 
-    // 2. Query using LOWER() on both the column and the parameter
     const result = await pool.query(
       `SELECT id, name, reg_no, class_dept, section, media 
        FROM students 
@@ -563,9 +513,7 @@ app.get('/api/teacher/students/:section', authenticateToken, teacherOnly, async 
   }
 });
 
-// --- ROUTES: MEDIA ---
 
-// 7. Media Upload (Images and Videos)
 app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
   try {
     console.log("Upload request received");
@@ -590,8 +538,6 @@ app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => 
   }
 });
 
-// FETCH INDIVIDUAL STUDENT PROFILE
-// FETCH STUDENT PROFILE WITH PHOTO
 app.get('/api/student/profile', authenticateToken, studentOnly, async (req, res) => {
   try {
     const result = await pool.query(
@@ -603,7 +549,6 @@ app.get('/api/student/profile', authenticateToken, studentOnly, async (req, res)
 
     const student = result.rows[0];
     
-    // Get module progress
     const progressResult = await pool.query(
       'SELECT * FROM v_student_module_progress WHERE student_id = $1',
       [req.user.id]
@@ -615,7 +560,6 @@ app.get('/api/student/profile', authenticateToken, studentOnly, async (req, res)
       completion_percentage: 0
     };
     
-    // Extract the image URL if it exists, otherwise provide a null
     const profilePic = student.media && student.media.url ? student.media.url : null;
 
     res.json({
@@ -633,9 +577,7 @@ app.get('/api/student/profile', authenticateToken, studentOnly, async (req, res)
   }
 });
 
-// --- PASSWORD CHANGE ROUTES ---
 
-// Student: Change own password
 app.post('/api/student/change-password', authenticateToken, studentOnly, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -649,19 +591,16 @@ app.post('/api/student/change-password', authenticateToken, studentOnly, async (
       return res.status(400).json({ error: "New password must be at least 6 characters" });
     }
 
-    // Get current password hash
     const result = await pool.query('SELECT password FROM students WHERE id = $1', [studentId]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Student not found" });
     }
 
-    // Verify current password
     const isValid = await bcrypt.compare(currentPassword, result.rows[0].password);
     if (!isValid) {
       return res.status(401).json({ error: "Current password is incorrect" });
     }
 
-    // Hash new password and update
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
     await pool.query('UPDATE students SET password = $1 WHERE id = $2', [hashedPassword, studentId]);
 
@@ -672,7 +611,6 @@ app.post('/api/student/change-password', authenticateToken, studentOnly, async (
   }
 });
 
-// Teacher: Change own password
 app.post('/api/teacher/change-password', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -686,19 +624,16 @@ app.post('/api/teacher/change-password', authenticateToken, teacherOnly, async (
       return res.status(400).json({ error: "New password must be at least 6 characters" });
     }
 
-    // Get current password hash
     const result = await pool.query('SELECT password FROM teachers WHERE id = $1', [teacherId]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Teacher not found" });
     }
 
-    // Verify current password
     const isValid = await bcrypt.compare(currentPassword, result.rows[0].password);
     if (!isValid) {
       return res.status(401).json({ error: "Current password is incorrect" });
     }
 
-    // Hash new password and update
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
     await pool.query('UPDATE teachers SET password = $1 WHERE id = $2', [hashedPassword, teacherId]);
 
@@ -709,7 +644,6 @@ app.post('/api/teacher/change-password', authenticateToken, teacherOnly, async (
   }
 });
 
-// Admin: Reset student password
 app.post('/api/admin/reset-student-password', authenticateToken, adminOnly, async (req, res) => {
   try {
     const { studentId, newPassword } = req.body;
@@ -722,7 +656,6 @@ app.post('/api/admin/reset-student-password', authenticateToken, adminOnly, asyn
       return res.status(400).json({ error: "New password must be at least 6 characters" });
     }
 
-    // Check if student exists
     const checkResult = await pool.query('SELECT id, name, email FROM students WHERE id = $1', [studentId]);
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: "Student not found" });
@@ -730,7 +663,6 @@ app.post('/api/admin/reset-student-password', authenticateToken, adminOnly, asyn
 
     const student = checkResult.rows[0];
 
-    // Hash new password and update
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
     await pool.query('UPDATE students SET password = $1 WHERE id = $2', [hashedPassword, studentId]);
 
@@ -746,7 +678,6 @@ app.post('/api/admin/reset-student-password', authenticateToken, adminOnly, asyn
   }
 });
 
-// Admin: Reset teacher password
 app.post('/api/admin/reset-teacher-password', authenticateToken, adminOnly, async (req, res) => {
   try {
     const { teacherId, newPassword } = req.body;
@@ -759,7 +690,6 @@ app.post('/api/admin/reset-teacher-password', authenticateToken, adminOnly, asyn
       return res.status(400).json({ error: "New password must be at least 6 characters" });
     }
 
-    // Check if teacher exists
     const checkResult = await pool.query('SELECT id, name, email FROM teachers WHERE id = $1', [teacherId]);
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: "Teacher not found" });
@@ -767,7 +697,6 @@ app.post('/api/admin/reset-teacher-password', authenticateToken, adminOnly, asyn
 
     const teacher = checkResult.rows[0];
 
-    // Hash new password and update
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
     await pool.query('UPDATE teachers SET password = $1 WHERE id = $2', [hashedPassword, teacherId]);
 
@@ -783,9 +712,7 @@ app.post('/api/admin/reset-teacher-password', authenticateToken, adminOnly, asyn
   }
 });
 
-// --- ROUTES: MODULE MANAGEMENT ---
 
-// 10. Teacher: Upload/Publish New Module
 app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const { section, subject, topic, steps } = req.body;
@@ -795,11 +722,9 @@ app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (re
       return res.status(400).json({ error: "Subject is required" });
     }
 
-    // Get teacher name for display
     const teacherResult = await pool.query('SELECT name FROM teachers WHERE id = $1', [teacherId]);
     const teacherName = teacherResult.rows[0]?.name || 'Unknown';
 
-    // Insert module with steps as JSONB
     const query = `
       INSERT INTO modules (section, subject, topic_title, teacher_id, teacher_name, step_count, steps) 
       VALUES ($1, $2, $3, $4, $5, $6, $7) 
@@ -810,7 +735,6 @@ app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (re
     const result = await pool.query(query, values);
     const moduleId = result.rows[0].id;
     
-    // NOTIFICATION: Send to all students in section
     try {
       const students = await notificationService.getStudentsInSection(section, 'MODULE_PUBLISHED');
       
@@ -824,7 +748,6 @@ app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (re
           step_count: steps.length
         });
         
-        // Send emails
         await notificationService.sendBatchEmails(
           'MODULE_PUBLISHED',
           students,
@@ -832,7 +755,6 @@ app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (re
           { module_id: moduleId, teacher_id: teacherId }
         );
         
-        // Create in-app notifications
         await notificationService.createBatchInAppNotifications(
           'MODULE_PUBLISHED',
           students,
@@ -852,7 +774,6 @@ app.post('/api/teacher/upload-module', authenticateToken, teacherOnly, async (re
   }
 });
 
-// 11. Teacher: Fetch Modules for a Section
 app.get('/api/teacher/modules/:section', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const section = req.params.section;
@@ -872,7 +793,6 @@ app.get('/api/teacher/modules/:section', authenticateToken, teacherOnly, async (
   }
 });
 
-// 11b. Teacher: Get Single Module (for editing)
 app.get('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
@@ -894,14 +814,12 @@ app.get('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (
   }
 });
 
-// 11c. Teacher: Update/Edit Module
 app.put('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
     const { topic, subject, steps } = req.body;
     const teacherId = req.user.id;
     
-    // Verify teacher owns this module
     const checkOwner = await pool.query(
       'SELECT id FROM modules WHERE id = $1 AND teacher_id = $2',
       [moduleId, teacherId]
@@ -911,7 +829,6 @@ app.put('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (
       return res.status(403).json({ error: "Not authorized to edit this module" });
     }
     
-    // Update module
     const query = `
       UPDATE modules 
       SET topic_title = $1, subject = $2, steps = $3, step_count = $4
@@ -927,13 +844,11 @@ app.put('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (
   }
 });
 
-// 11c. Teacher: Delete Module
 app.delete('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
     const teacherId = req.user.id;
     
-    // Verify teacher owns this module
     const checkOwner = await pool.query(
       'SELECT id FROM modules WHERE id = $1 AND teacher_id = $2',
       [moduleId, teacherId]
@@ -943,7 +858,6 @@ app.delete('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, asyn
       return res.status(403).json({ error: "Not authorized to delete this module" });
     }
     
-    // Delete module
     await pool.query('DELETE FROM modules WHERE id = $1', [moduleId]);
     res.json({ success: true, message: "Module deleted successfully" });
   } catch (err) {
@@ -952,12 +866,10 @@ app.delete('/api/teacher/module/:moduleId', authenticateToken, teacherOnly, asyn
   }
 });
 
-// 12. Student: Fetch My Modules (Based on Student's Section)
 app.get('/api/student/my-modules', authenticateToken, studentOnly, async (req, res) => {
   try {
     const studentId = req.user.id;
     
-    // Get student's section
     const studentResult = await pool.query(
       'SELECT class_dept, section FROM students WHERE id = $1',
       [studentId]
@@ -970,7 +882,6 @@ app.get('/api/student/my-modules', authenticateToken, studentOnly, async (req, r
     const { class_dept, section } = studentResult.rows[0];
     const fullSection = `${class_dept} ${section}`; // e.g., "ECE A"
     
-    // Fetch modules for this section
     const modulesResult = await pool.query(
       `SELECT id, topic_title, teacher_name, step_count, created_at 
        FROM modules 
@@ -986,7 +897,6 @@ app.get('/api/student/my-modules', authenticateToken, studentOnly, async (req, r
   }
 });
 
-// 13. Student: Fetch Specific Module Content (All Steps)
 app.get('/api/student/module/:moduleId', authenticateToken, studentOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
@@ -999,16 +909,13 @@ app.get('/api/student/module/:moduleId', authenticateToken, studentOnly, async (
     
     if (result.rows.length === 0) return res.status(404).json({ error: "Module not found" });
     
-    // Log module access for teacher analytics
     await pool.query('SELECT track_module_access($1, $2)', [studentId, moduleId]);
     
     const steps = result.rows[0].steps;
     
-    // Format steps for the frontend
     const formattedSteps = steps.map((step, index) => ({
       id: index + 1,
       step_type: step.type, // 'video', 'content', 'mcq', or 'coding'
-      // This is what the frontend is looking for:
       mcq_data: step.data, 
       content_text: step.data.description || step.data.question || ''
     }));
@@ -1019,7 +926,6 @@ app.get('/api/student/module/:moduleId', authenticateToken, studentOnly, async (
   }
 });
 
-// 13b. Student: Mark Module as Complete
 app.post('/api/student/module/:moduleId/complete', authenticateToken, studentOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
@@ -1034,7 +940,6 @@ app.post('/api/student/module/:moduleId/complete', authenticateToken, studentOnl
   }
 });
 
-// 13c. Student: Get My Module Progress
 app.get('/api/student/module-progress', authenticateToken, studentOnly, async (req, res) => {
   try {
     const studentId = req.user.id;
@@ -1060,7 +965,6 @@ app.get('/api/student/module-progress', authenticateToken, studentOnly, async (r
   }
 });
 
-// 13d. Teacher: Get Module Statistics
 app.get('/api/teacher/module/:moduleId/statistics', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const moduleId = req.params.moduleId;
@@ -1093,7 +997,6 @@ app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req,
 
         let passedCount = 0;
 
-        // --- EVALUATION LOOP ---
         for (const tc of testCases) {
             const response = await fetch("https://emkc.org/api/v2/piston/execute", {
                 method: "POST",
@@ -1109,17 +1012,14 @@ app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req,
             const result = await response.json();
             const actualOutput = (result.run.stdout || "").trim();
             
-            // Compare output with expected result
             if (actualOutput === tc.expected.trim()) {
                 passedCount++;
             }
         }
 
-        // --- CALCULATION ---
         const totalCases = testCases.length;
         const finalScore = ((passedCount / totalCases) * 100).toFixed(2);
 
-        // --- DATABASE STORAGE ---
         const query = `
             INSERT INTO student_submissions 
             (student_id, student_email, module_id, submitted_code, language, test_cases_passed, total_test_cases, score) 
@@ -1130,7 +1030,6 @@ app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req,
         const values = [studentId, studentEmail, moduleId, code, language, passedCount, totalCases, finalScore];
         const dbResult = await pool.query(query, values);
 
-        // --- RESPONSE FOR POPUP ---
         res.json({ 
             success: true, 
             score: dbResult.rows[0].score, 
@@ -1144,7 +1043,6 @@ app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req,
     }
 });
 
-// 13e. Teacher: Get Student's Module Progress
 app.get('/api/teacher/student/:studentId/module-progress', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const studentId = req.params.studentId;
@@ -1170,15 +1068,12 @@ app.get('/api/teacher/student/:studentId/module-progress', authenticateToken, te
   }
 });
 
-// --- ROUTES: MCQ TEST SYSTEM ---
 
-// 14. Teacher: Create MCQ Test
 app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const { section, title, description, questions, start_date, deadline } = req.body;
     const teacher_id = req.user.id;
     
-    // Get teacher name
     const teacherResult = await pool.query('SELECT name FROM teachers WHERE id = $1', [teacher_id]);
     const teacher_name = teacherResult.rows[0]?.name || 'Unknown';
     
@@ -1195,7 +1090,6 @@ app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req,
     
     const test = result.rows[0];
     
-    // NOTIFICATION: Send to all students in section
     try {
       const students = await notificationService.getStudentsInSection(section, 'TEST_ASSIGNED');
       
@@ -1210,7 +1104,6 @@ app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req,
           deadline: deadline
         });
         
-        // Send emails
         await notificationService.sendBatchEmails(
           'TEST_ASSIGNED',
           students,
@@ -1218,7 +1111,6 @@ app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req,
           { test_id: test.id, teacher_id: teacher_id }
         );
         
-        // Create in-app notifications
         await notificationService.createBatchInAppNotifications(
           'TEST_ASSIGNED',
           students,
@@ -1238,7 +1130,6 @@ app.post('/api/teacher/test/create', authenticateToken, teacherOnly, async (req,
   }
 });
 
-// 15. Teacher: Get All Tests for Section
 app.get('/api/teacher/tests/:section', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const section = req.params.section;
@@ -1257,7 +1148,6 @@ app.get('/api/teacher/tests/:section', authenticateToken, teacherOnly, async (re
   }
 });
 
-// 16. Teacher: Get Test Submissions (who submitted)
 app.get('/api/teacher/test/:testId/submissions', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const test_id = req.params.testId;
@@ -1278,12 +1168,10 @@ app.get('/api/teacher/test/:testId/submissions', authenticateToken, teacherOnly,
   }
 });
 
-// 17. Teacher: Get Student's Detailed Progress
 app.get('/api/teacher/student/:studentId/progress', authenticateToken, teacherOnly, async (req, res) => {
   try {
     const student_id = req.params.studentId;
     
-    // Get student basic info
     const studentResult = await pool.query(
       'SELECT * FROM v_student_test_progress WHERE student_id = $1',
       [student_id]
@@ -1293,7 +1181,6 @@ app.get('/api/teacher/student/:studentId/progress', authenticateToken, teacherOn
       return res.status(404).json({ error: "Student not found" });
     }
     
-    // Get detailed test history
     const testsResult = await pool.query(
       'SELECT * FROM get_student_detailed_progress($1)',
       [student_id]
@@ -1309,12 +1196,10 @@ app.get('/api/teacher/student/:studentId/progress', authenticateToken, teacherOn
   }
 });
 
-// 18. Student: Get My Tests (Pending & Completed)
 app.get('/api/student/tests', authenticateToken, studentOnly, async (req, res) => {
   try {
     const student_id = req.user.id;
     
-    // Get student's section
     const studentResult = await pool.query(
       'SELECT class_dept, section FROM students WHERE id = $1',
       [student_id]
@@ -1327,7 +1212,6 @@ app.get('/api/student/tests', authenticateToken, studentOnly, async (req, res) =
     const { class_dept, section } = studentResult.rows[0];
     const full_section = `${class_dept} ${section}`;
     
-    // Get all tests with submission status
     const result = await pool.query(
       `SELECT 
         t.id,
@@ -1363,13 +1247,11 @@ app.get('/api/student/tests', authenticateToken, studentOnly, async (req, res) =
   }
 });
 
-// 19. Student: Get Test to Take
 app.get('/api/student/test/:testId', authenticateToken, studentOnly, async (req, res) => {
   try {
     const test_id = req.params.testId;
     const student_id = req.user.id;
     
-    // Check if already submitted
     const submissionCheck = await pool.query(
       'SELECT id FROM test_submissions WHERE test_id = $1 AND student_id = $2',
       [test_id, student_id]
@@ -1379,7 +1261,6 @@ app.get('/api/student/test/:testId', authenticateToken, studentOnly, async (req,
       return res.status(400).json({ error: "Test already submitted" });
     }
     
-    // Get test details
     const result = await pool.query(
       'SELECT id, title, description, questions, total_questions, deadline FROM mcq_tests WHERE id = $1 AND is_active = true',
       [test_id]
@@ -1396,7 +1277,6 @@ app.get('/api/student/test/:testId', authenticateToken, studentOnly, async (req,
   }
 });
 
-// 20. Student: Submit Test
 app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req, res) => {
   try {
     const { test_id, answers, time_taken } = req.body;
@@ -1406,7 +1286,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
     console.log("Test ID:", test_id);
     console.log("Student Answers:", answers);
     
-    // Get student info
     const studentResult = await pool.query(
       'SELECT name, reg_no FROM students WHERE id = $1',
       [student_id]
@@ -1418,7 +1297,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
     
     const { name, reg_no } = studentResult.rows[0];
     
-    // Get test questions to calculate score
     const testResult = await pool.query(
       'SELECT questions, total_questions, deadline FROM mcq_tests WHERE id = $1',
       [test_id]
@@ -1431,7 +1309,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
     const { questions, total_questions, deadline } = testResult.rows[0];
     console.log("Test Questions:", questions);
     
-    // CALCULATE SCORE IN BACKEND (more reliable than SQL trigger)
     let correct_count = 0;
     
     for (let i = 0; i < questions.length; i++) {
@@ -1441,7 +1318,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
       
       console.log(`Q${i}: Student="${studentAnswer}" vs Correct="${correctAnswer}"`);
       
-      // Case-insensitive comparison
       if (studentAnswer && correctAnswer && 
           studentAnswer.toUpperCase().trim() === correctAnswer.toUpperCase().trim()) {
         correct_count++;
@@ -1454,14 +1330,12 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
     const score = correct_count;
     const percentage = total_questions > 0 ? ((correct_count / total_questions) * 100).toFixed(2) : 0;
     
-    // Check if late submission
     const isLate = new Date() > new Date(deadline);
     const status = isLate ? 'late' : 'completed';
     
     console.log(`Final Score: ${score}/${total_questions} = ${percentage}%`);
     console.log("=== END DEBUG ===");
     
-    // Insert submission with calculated score
     const query = `
       INSERT INTO test_submissions (test_id, student_id, student_name, student_reg_no, answers, score, percentage, status, time_taken)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -1475,7 +1349,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
     const submission = result.rows[0];
     console.log("Submission saved:", submission);
     
-    // NOTIFICATION 1: Notify teacher about submission
     try {
       const testInfo = await pool.query(
         'SELECT teacher_id, teacher_name, section, title FROM mcq_tests WHERE id = $1',
@@ -1500,7 +1373,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
             test_id: test_id
           };
           
-          // Send email
           await notificationService.sendEmail(
             'TEST_SUBMITTED',
             teacher,
@@ -1508,7 +1380,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
             { test_id, student_id, submission_id: submission.id }
           );
           
-          // Create in-app notification
           await notificationService.createInAppNotification(
             'TEST_SUBMITTED',
             teacher,
@@ -1522,7 +1393,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
       console.error('Teacher notification error (non-blocking):', notifErr);
     }
     
-    // NOTIFICATION 2: Notify student about grade
     try {
       const studentInfo = await pool.query(
         'SELECT email FROM students WHERE id = $1',
@@ -1551,7 +1421,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
           status: status
         };
         
-        // Send email
         await notificationService.sendEmail(
           'GRADE_POSTED',
           student,
@@ -1559,7 +1428,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
           { test_id, submission_id: submission.id }
         );
         
-        // Create in-app notification
         await notificationService.createInAppNotification(
           'GRADE_POSTED',
           student,
@@ -1579,7 +1447,6 @@ app.post('/api/student/test/submit', authenticateToken, studentOnly, async (req,
   }
 });
 
-// 21. Student: Get My Progress Overview
 app.get('/api/student/progress', authenticateToken, studentOnly, async (req, res) => {
   try {
     const student_id = req.user.id;
@@ -1605,9 +1472,7 @@ app.get('/api/student/progress', authenticateToken, studentOnly, async (req, res
   }
 });
 
-// --- ROUTES: CODING WORKBENCH ---
 
-// 22. Student: Submit Code Solution
 app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req, res) => {
   try {
     const { moduleId, code, language, testCases } = req.body;
@@ -1620,7 +1485,6 @@ app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req,
 
     let passedCount = 0;
 
-    // --- EVALUATION LOOP ---
     for (const tc of testCases) {
       const response = await fetch("https://emkc.org/api/v2/piston/execute", {
         method: "POST",
@@ -1636,17 +1500,14 @@ app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req,
       const result = await response.json();
       const actualOutput = (result.run.stdout || "").trim();
 
-      // Compare output with expected result
       if (actualOutput === tc.expected.trim()) {
         passedCount++;
       }
     }
 
-    // --- CALCULATION ---
     const totalCases = testCases.length;
     const finalScore = ((passedCount / totalCases) * 100).toFixed(2);
 
-    // --- DATABASE STORAGE ---
     const query = `
       INSERT INTO student_submissions (student_id, student_email, module_id, submitted_code, language, test_cases_passed, total_test_cases, score) 
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
@@ -1655,7 +1516,6 @@ app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req,
     const values = [studentId, studentEmail, moduleId, code, language, passedCount, totalCases, finalScore];
     const dbResult = await pool.query(query, values);
 
-    // --- RESPONSE FOR POPUP ---
     res.json({ 
       success: true, 
       score: dbResult.rows[0].score, 
@@ -1668,11 +1528,7 @@ app.post('/api/student/submit-code', authenticateToken, studentOnly, async (req,
   }
 });
 
-// ============================================================
-// NOTIFICATION SYSTEM ENDPOINTS
-// ============================================================
 
-// Get user notification preferences
 app.get('/api/notifications/preferences', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1692,7 +1548,6 @@ app.get('/api/notifications/preferences', authenticateToken, async (req, res) =>
   }
 });
 
-// Update notification preference
 app.put('/api/notifications/preferences/:eventCode', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1719,7 +1574,6 @@ app.put('/api/notifications/preferences/:eventCode', authenticateToken, async (r
   }
 });
 
-// Get user notification history
 app.get('/api/notifications/history', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1742,10 +1596,8 @@ app.get('/api/notifications/history', authenticateToken, async (req, res) => {
   }
 });
 
-// Get notification statistics (admin/teacher)
 app.get('/api/notifications/stats', authenticateToken, async (req, res) => {
   try {
-    // Only allow teachers and admins
     if (req.user.role !== 'admin' && req.user.role !== 'teacher') {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -1763,11 +1615,7 @@ app.get('/api/notifications/stats', authenticateToken, async (req, res) => {
   }
 });
 
-// ============================================================
-// IN-APP NOTIFICATIONS (Bell Icon)
-// ============================================================
 
-// Get user's in-app notifications
 app.get('/api/notifications/inbox', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1790,7 +1638,6 @@ app.get('/api/notifications/inbox', authenticateToken, async (req, res) => {
   }
 });
 
-// Get unread notification count
 app.get('/api/notifications/unread-count', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1809,7 +1656,6 @@ app.get('/api/notifications/unread-count', authenticateToken, async (req, res) =
   }
 });
 
-// Mark notification as read
 app.patch('/api/notifications/:id/read', authenticateToken, async (req, res) => {
   try {
     const notificationId = req.params.id;
@@ -1835,7 +1681,6 @@ app.patch('/api/notifications/:id/read', authenticateToken, async (req, res) => 
   }
 });
 
-// Mark all notifications as read
 app.patch('/api/notifications/read-all', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1855,7 +1700,6 @@ app.patch('/api/notifications/read-all', authenticateToken, async (req, res) => 
   }
 });
 
-// Manual test notification (development only)
 if (process.env.ENABLE_DEV_ENDPOINTS === 'true' || process.env.NODE_ENV !== 'production') {
   app.post('/api/notifications/test', authenticateToken, async (req, res) => {
     try {
@@ -1877,7 +1721,6 @@ if (process.env.ENABLE_DEV_ENDPOINTS === 'true' || process.env.NODE_ENV !== 'pro
   });
 }
 
-// Export app for testing, only listen if run directly
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => console.log(`SERVER ACTIVE ON PORT ${PORT}`));

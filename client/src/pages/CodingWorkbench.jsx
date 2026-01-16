@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 function CodingWorkbench() {
 
   
-  // 1. STATE MANAGEMENT
   const [language, setLanguage] = useState('java');
   const [code, setCode] = useState(`import java.util.*;
 
@@ -11,7 +10,6 @@ public class Solution {
     public static void main(String[] args) {
         Scanner in = new Scanner(System.in);
         
-        // Safety check: Exit if no input is provided in stdin
         if (!in.hasNext()) {
             return; 
         }
@@ -25,7 +23,6 @@ public class Solution {
   const [output, setOutput] = useState('Terminal idle. Enter input and run code.');
   const [isRunning, setIsRunning] = useState(false);
 
-  // 2. ENGINE CONFIGURATION
   const languageSpecs = {
     java: { name: "java", version: "15.0.2" },
     python: { name: "python", version: "3.10.0" },
@@ -33,9 +30,7 @@ public class Solution {
     cpp: { name: "c++", version: "10.2.0" }
   };
 
-  // 3. EXECUTION LOGIC
   const executeCode = async () => {
-    // Prevent execution if input box is empty to avoid Scanner errors
     if (!userInput.trim()) {
       setOutput("> ERROR: Input required. Please type a value in the STDIN box below.");
       return;
@@ -58,7 +53,6 @@ public class Solution {
 
       const data = await response.json();
       
-      // Prioritize error output to help debugging
       const finalOutput = data.run.stderr || data.run.stdout || data.run.output || "> No output returned.";
       setOutput(finalOutput);
     } catch (error) {
@@ -71,8 +65,6 @@ public class Solution {
   return (
     <div className="min-h-screen bg-slate-50 p-6 lg:p-10 font-sans text-slate-800">
       <div className="max-w-7xl mx-auto">
-        
-        {/* HEADER */}
         <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter">
@@ -104,11 +96,7 @@ public class Solution {
             </button>
           </div>
         </header>
-
-        {/* WORKSPACE */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[75vh]">
-          
-          {/* LEFT: EDITOR & STDIN */}
           <div className="flex flex-col gap-6 h-full">
             <div className="flex-1 bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden flex flex-col">
               <div className="px-6 py-3 border-b border-slate-50 bg-slate-50/50 flex justify-between">
@@ -121,8 +109,6 @@ public class Solution {
                 className="flex-1 p-6 font-mono text-sm outline-none resize-none text-slate-700 custom-scrollbar"
               />
             </div>
-
-            {/* STDIN BOX */}
             <div className={`h-36 bg-white rounded-[1.5rem] shadow-lg border-2 transition-colors overflow-hidden flex flex-col ${!userInput.trim() ? 'border-amber-100' : 'border-emerald-100'}`}>
               <div className="px-5 py-2 border-b bg-slate-50/50 flex justify-between">
                 <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Program Input (stdin)</span>
@@ -136,8 +122,6 @@ public class Solution {
               />
             </div>
           </div>
-
-          {/* RIGHT: OUTPUT TERMINAL */}
           <div className="bg-[#0f172a] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-full border-[6px] border-[#1e293b]">
             <div className="px-6 py-4 border-b border-slate-800 bg-[#1e293b]/50 flex justify-between items-center">
               <div className="flex gap-1.5">
